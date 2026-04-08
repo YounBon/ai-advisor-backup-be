@@ -5,6 +5,28 @@ const ClassMember = require("../models/classMember.model");
 const throwError = require("../utils/throwError");
 const { pick } = require("lodash");
 
+function getDepartmentName(department) {
+    if (!department) return null;
+    if (typeof department === "object") return department.department_name || null;
+    return null;
+}
+
+function getMajorName(major) {
+    if (!major) return null;
+    if (typeof major === "object") return major.major_name || null;
+    return null;
+}
+
+function toDisplayUser(user) {
+    if (!user) return user;
+    return {
+        ...user,
+        full_name: user.profile?.full_name || null,
+        department_name: getDepartmentName(user.org?.department_id),
+        major_name: getMajorName(user.org?.major_id),
+    };
+}
+
 class UserService {
     async createUser(body) {
         const hasDepartmentId = !!body.org?.department_id;
@@ -83,14 +105,17 @@ class UserService {
         const [items, total] = await Promise.all([
             User.find(filter)
                 .select("_id username email role status profile org student_info advisor_info createdAt updatedAt")
+                .populate("org.department_id", "department_code department_name")
+                .populate("org.major_id", "major_code major_name department_id")
                 .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(limit),
+                .limit(limit)
+                .lean(),
             User.countDocuments(filter),
         ]);
 
         return {
-            items,
+            items: items.map(toDisplayUser),
             pagination: {
                 page,
                 limit,
@@ -145,10 +170,20 @@ class UserService {
             .populate({
                 path: "class_id",
                 select: "class_code class_name status cohort_year advisor_user_id department_id major_id",
-                populate: {
-                    path: "advisor_user_id",
-                    select: "username email profile.full_name advisor_info",
-                },
+                populate: [
+                    {
+                        path: "advisor_user_id",
+                        select: "username email profile.full_name advisor_info",
+                    },
+                    {
+                        path: "department_id",
+                        select: "department_code department_name",
+                    },
+                    {
+                        path: "major_id",
+                        select: "major_code major_name",
+                    },
+                ],
             })
             .sort({ createdAt: -1 })
             .lean();
@@ -166,6 +201,8 @@ class UserService {
                           class_name: cls.class_name,
                           status: cls.status,
                           cohort_year: cls.cohort_year,
+                          department_name: getDepartmentName(cls.department_id),
+                          major_name: getMajorName(cls.major_id),
                       }
                     : null,
                 advisor: adv
@@ -181,7 +218,7 @@ class UserService {
         });
 
         return {
-            ...user,
+            ...toDisplayUser(user),
             advisor_class_memberships,
         };
     }

@@ -6,6 +6,28 @@ const Department = require("../models/department.model");
 const Major = require("../models/major.model");
 const throwError = require("../utils/throwError");
 
+function getDepartmentName(department) {
+    if (!department) return null;
+    if (typeof department === "object") return department.department_name || null;
+    return null;
+}
+
+function getMajorName(major) {
+    if (!major) return null;
+    if (typeof major === "object") return major.major_name || null;
+    return null;
+}
+
+function toDisplayStudent(user) {
+    if (!user) return user;
+    return {
+        ...user,
+        full_name: user.profile?.full_name || null,
+        department_name: getDepartmentName(user.org?.department_id),
+        major_name: getMajorName(user.org?.major_id),
+    };
+}
+
 class StudentService {
     /**
      * @param {object} body
@@ -77,14 +99,17 @@ class StudentService {
         const [items, total] = await Promise.all([
             User.find(filter)
                 .select("_id username email role status profile org student_info createdAt updatedAt")
+                .populate("org.department_id", "department_code department_name")
+                .populate("org.major_id", "major_code major_name department_id")
                 .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(limit),
+                .limit(limit)
+                .lean(),
             User.countDocuments(filter),
         ]);
 
         return {
-            items,
+            items: items.map(toDisplayStudent),
             pagination: {
                 page,
                 limit,
@@ -97,11 +122,13 @@ class StudentService {
     async getStudentById(id) {
         const filter = { _id: id, role: "STUDENT" };
 
-        const student = await User.findOne(filter).select(
-            "_id username email role status profile org student_info createdAt updatedAt"
-        );
+        const student = await User.findOne(filter)
+            .select("_id username email role status profile org student_info createdAt updatedAt")
+            .populate("org.department_id", "department_code department_name")
+            .populate("org.major_id", "major_code major_name department_id")
+            .lean();
         if (!student) throwError("Student not found", 404);
-        return student;
+        return toDisplayStudent(student);
     }
 
     async getMyAdvisor(studentUserId) {
