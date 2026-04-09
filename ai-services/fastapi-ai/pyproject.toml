@@ -1,7 +1,7 @@
 [project]
 name = "fastapi-ai-services"
 version = "0.1.0"
-description = "FastAPI services for AI-01 risk prediction and AI-02 sentiment analysis"
+description = "FastAPI services for AI-01 risk prediction, AI-02 sentiment analysis, and AI-04 anomaly detection"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -16,6 +16,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest==8.3.3",
+    "httpx>=0.28.1",
 ]
 train = [
     "torch>=2.3.0",

@@ -1,10 +1,10 @@
-# Dashboard Flow (AI-01 + AI-02)
+# Dashboard Flow (AI-01 + AI-02 + AI-04)
 
 ## 1) Scope
 Tài liệu mô tả luồng dashboard hiện tại:
 - `STUDENT`: chỉ xem dashboard của chính mình
 - `ADVISOR`: chỉ xem dashboard của chính advisor đó
-- Chỉ hiển thị dữ liệu liên quan `risk` và `sentiment` (anomaly tạm ẩn)
+- Chủ đạo hiển thị `risk` và `sentiment`; anomaly dùng cho alert/summary tùy dashboard.
 
 ## 2) Student Dashboard Sequence
 ```mermaid

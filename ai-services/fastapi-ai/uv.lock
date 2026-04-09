@@ -511,6 +511,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "httpx" },
     { name = "pytest" },
 ]
 train = [
@@ -534,7 +535,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = "==8.3.3" }]
+dev = [
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pytest", specifier = "==8.3.3" },
+]
 train = [
     { name = "accelerate", specifier = ">=0.33.0" },
     { name = "datasets", specifier = ">=2.20.0" },

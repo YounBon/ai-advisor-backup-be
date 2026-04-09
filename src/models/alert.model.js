@@ -37,6 +37,14 @@ const alertSchema = new mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "Feedback",
         },
+        academic_record_id: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "AcademicRecord",
+        },
+        metadata: {
+            type: mongoose.Schema.Types.Mixed,
+            default: {},
+        },
         status: { type: String, enum: ["OPEN", "ACKED", "RESOLVED"], default: "OPEN" },
         detected_at: { type: Date, default: Date.now },
     },
@@ -45,5 +53,6 @@ const alertSchema = new mongoose.Schema(
 
 alertSchema.index({ student_user_id: 1, detected_at: -1 });
 alertSchema.index({ status: 1, severity: 1 });
+alertSchema.index({ academic_record_id: 1, alert_type: 1 });
 
 module.exports = mongoose.model("Alert", alertSchema);

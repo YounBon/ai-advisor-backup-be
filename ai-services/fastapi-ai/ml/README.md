@@ -1,4 +1,4 @@
-# ML Training Guide (AI-01 + AI-02)
+# ML Training Guide (AI-01 + AI-02 + AI-04)
 
 ## 1) Cài dependencies train
 
@@ -151,7 +151,26 @@ uv run python ml/sentiment/scripts/predict_sentiment.py --text "Buoi SHCVHT rat 
 `feedback_score = P(NEGATIVE) - P(POSITIVE)`  
 Giá trị nằm trong `[-1, 1]`.
 
-## 5) Dùng checkpoint trong FastAPI
+## 5) AI-04 (Anomaly Detection)
+
+AI-04 in this MVP is unsupervised and inference-only:
+- Model: Isolation Forest + Z-score
+- Feature set: `gpa_current`, `attendance_rate`, `sentiment_score`, `stress_level`
+- Input: full student history (already sorted by backend using `recorded_at`)
+- Output: `is_anomaly`, `anomaly_score`, `anomaly_type`, `z_scores`
+
+No offline training checkpoint is required for this version.
+
+Runtime knobs (from `.env`):
+- `ANOMALY_CONTAMINATION` (default `0.15`)
+- `ANOMALY_DIRECTIONAL_Z_THRESHOLD` (default `2.0`)
+- `ANOMALY_MIN_HISTORY_FOR_STAT_MODEL` (default `5`)
+- `ANOMALY_DELTA_GPA` (default `0.5`)
+- `ANOMALY_DELTA_ATTENDANCE` (default `0.3`)
+- `ANOMALY_DELTA_SENTIMENT` (default `0.4`)
+- `ANOMALY_DELTA_STRESS` (default `2.0`)
+
+## 6) Dùng checkpoint trong FastAPI
 
 Set env cho AI-01:
 - `RISK_MODEL_DIR=ml/risk/artifacts/checkpoints/risk-rf/final`

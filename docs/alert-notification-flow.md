@@ -1,102 +1,76 @@
-# Quy trình Alert + Notification (End-to-End)
+# Alert + Notification Flow (3 AI)
 
-Tài liệu này mô tả luồng tạo cảnh báo (`alert`) và thông báo chuông (`notification`) cho 2 trường hợp:
-- Sentiment Alert (AI-02)
-- Risk Alert (AI-01)
+This document describes how `alert` and `notification` are generated for:
+- AI-01 Risk Alert
+- AI-02 Sentiment Alert
+- AI-04 Anomaly Alert
 
-## 1) Nguyên tắc chung
+## 1) Common principle
 
-AI phát hiện vấn đề -> tạo `alert` -> tạo `notification` cho CVHT.
+AI detects issue -> create `alert` -> create `notification` for advisor.
 
-- `alert`: dùng để tổng hợp/dashboard.
-- `notification`: dùng để hiển thị chuông và nhắc CVHT xử lý.
+- `alert`: source of truth for dashboard and workflow status.
+- `notification`: bell item for advisor action.
 
-## 2) Flow Sentiment Alert (AI-02)
+## 2) AI-02 Sentiment Alert flow
 
-1. Sinh viên gửi feedback.
-2. Hệ thống lưu vào `feedbacks`.
-3. Gọi AI-02 phân tích cảm xúc.
-4. Nhận kết quả `sentiment_label` + `feedback_score`.
-5. Điều kiện tạo alert:
-- `sentiment_label == "NEGATIVE"`
-- `feedback_score < -0.6`
-6. Tính `severity`:
-- `feedback_score < -0.8` -> `HIGH`
-- Ngược lại -> `MEDIUM`
-7. Tạo `alert`:
-- `alert_type = "SENTIMENT"`
-- `source_ai = "AI02_SENTIMENT"`
-- `severity = HIGH|MEDIUM`
-- `feedback_id = feedback._id`
-- `student_user_id`, `term_id`
-8. Tìm CVHT của sinh viên:
-- `alert.student_user_id` -> `class_members` (`student_user_id`) -> `class_id`
-- `class_id` -> `advisor_classes` -> `advisor_user_id`
-9. Tạo `notification` cho đúng CVHT:
-- `recipient_user_id = advisor_user_id`
-- `alert_id = alert._id`
-- `title = "Cảnh báo cảm xúc từ sinh viên"`
-- `content` có tên sinh viên (fallback student_code/id nếu thiếu tên)
+1. Student submits feedback.
+2. Backend stores `feedback`.
+3. Backend calls AI-02 `/api/v1/sentiment/classify`.
+4. Condition:
+   - `sentiment_label == NEGATIVE`
+   - `feedback_score < -0.6`
+5. Create `alert`:
+   - `alert_type = SENTIMENT`
+   - `source_ai = AI02_SENTIMENT`
+   - `feedback_id = feedback._id`
+6. Create `notification` for advisor of that student.
 
-Khi CVHT bấm chuông:
-- `notification` -> `alert` -> `feedback_id` -> xem nội dung feedback chi tiết.
+## 3) AI-01 Risk Alert flow
 
-## 3) Flow Risk Alert (AI-01)
+1. Student submits academic record.
+2. Backend computes payload and calls AI-01 `/api/v1/risk/predict`.
+3. Backend stores `risk_predictions`.
+4. Condition:
+   - `risk_label == -1`
+5. Create `alert`:
+   - `alert_type = RISK`
+   - `source_ai = AI01_RISK`
+   - `risk_prediction_id = risk_prediction._id`
+6. Create `notification` for advisor.
 
-1. Sinh viên submit dữ liệu học tập (academic).
-2. Hệ thống tính avg sentiment trong kỳ.
-3. Gọi AI-01 Risk Prediction.
-4. Lưu `risk_predictions` (`risk_score`, `risk_label`).
-5. Điều kiện tạo alert:
-- `risk_label == -1` (HIGH)
-6. Tính `severity`:
-- `0.75 <= risk_score <= 0.85` -> `MEDIUM`
-- `risk_score > 0.85` -> `HIGH`
-7. Tạo `alert`:
-- `alert_type = "RISK"`
-- `source_ai = "AI01_RISK"`
-- `severity = HIGH|MEDIUM`
-- `risk_prediction_id = risk_prediction._id`
-- `student_user_id`, `term_id`
-8. Tìm CVHT của sinh viên:
-- `student_user_id` -> `class_members` -> `advisor_classes.advisor_user_id`
-9. Tạo `notification` cho CVHT:
-- `recipient_user_id = advisor_user_id`
-- `alert_id = alert._id`
-- `title = "Cảnh báo nguy cơ học vụ"`
-- `content` có tên sinh viên
-10. Sau đó mới sinh recommendation cho sinh viên.
+## 4) AI-04 Anomaly Alert flow
 
-Khi CVHT bấm chuông:
-- `notification` -> `alert` -> `risk_prediction_id` -> xem chi tiết chỉ số risk.
+1. Student submits academic record (new row in `academic_records`).
+2. Backend fetches full student history, sorted by `recorded_at`.
+3. Backend calls AI-04 `/api/v1/anomaly/detect` with:
+   - `gpa_current`
+   - `attendance_rate`
+   - `sentiment_score`
+   - `stress_level`
+4. Condition:
+   - If `history < 5`: delta fallback vs previous record:
+     - `gpa_current` giảm `>= 0.5`
+     - `attendance_rate` giảm `>= 0.3`
+     - `sentiment_score` giảm `>= 0.4`
+     - `stress_level` tăng `>= 2.0`
+   - If `history >= 5`:
+     - `IsolationForest` detects anomaly
+     - and at least one directional Z-score trigger:
+       - `gpa_current z <= -2.0`
+       - `attendance_rate z <= -2.0`
+       - `sentiment_score z <= -2.0`
+       - `stress_level z >= +2.0`
+5. Create `alert`:
+   - `alert_type = ANOMALY`
+   - `source_ai = AI04_ANOMALY`
+   - `academic_record_id = academic_record._id`
+   - `metadata` includes `anomaly_score`, `anomaly_type`, `triggered_features`, `z_scores`, `feature_values`
+6. Create `notification` for advisor.
 
-## 4) CVHT sẽ thấy gì
-
-- Dashboard Risk/Sentiment Cards: đọc từ `alert`.
-- Chuông thông báo: đọc từ `notification`.
-
-## 5) Mapping du lieu nhanh
+## 5) Data mapping
 
 - `notifications.alert_id` -> `alert._id`
-- `alert.feedback_id` (voi sentiment) -> `feedbacks._id`
-- `alert.risk_prediction_id` (voi risk) -> `risk_predictions._id`
-
-## 6) Mô tả Notification
-
-`notification` là bản ghi để hiển thị chuông cho CVHT, được tạo ngay sau khi `alert` được tạo.
-
-Trường dữ liệu chính:
-- `recipient_user_id`: user CVHT nhận thông báo.
-- `alert_id`: liên kết đến bản ghi `alert` gốc.
-- `title`: tiêu đề ngắn để CVHT nhìn nhanh loại cảnh báo.
-- `content`: nội dung mô tả, có thể kèm tên sinh viên.
-- `is_read`, `read_at`: trạng thái đã đọc/chưa đọc.
-- `sent_at`: thời điểm gửi thông báo.
-
-Nội dung hiển thị đề xuất:
-- Sentiment: `Cảnh báo cảm xúc từ sinh viên`
-- Risk: `Cảnh báo nguy cơ học vụ`
-
-Mẫu content:
-- Sentiment: `Sinh viên {student_name} vừa gửi phản hồi có dấu hiệu tâm lý nghiêm trọng.`
-- Risk: `Sinh viên {student_name} có nguy cơ cao về chỉ số rủi ro học tập trong học kỳ.`
+- `alert.feedback_id` -> `feedbacks._id` (AI-02)
+- `alert.risk_prediction_id` -> `risk_predictions._id` (AI-01)
+- `alert.academic_record_id` -> `academic_records._id` (AI-04)

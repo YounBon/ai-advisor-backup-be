@@ -34,7 +34,7 @@ JWT_EXPIRES_IN=7d
 
 ## Lưu ý khi chạy dự án
 
-**Bạn cần khởi động AI server (FastAPI AI) trước khi chạy backend nếu muốn sử dụng các chức năng phân tích AI (sentiment, risk, ...).**
+**Bạn cần khởi động AI server (FastAPI AI) trước khi chạy backend nếu muốn sử dụng các chức năng phân tích AI (risk, sentiment, anomaly).**
 
 - Xem hướng dẫn chi tiết tại: `ai-services/fastapi-ai/README.md`
 - Hoặc chạy nhanh:

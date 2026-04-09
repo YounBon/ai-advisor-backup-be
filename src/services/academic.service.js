@@ -13,7 +13,10 @@ const throwError = require("../utils/throwError");
 
 const AI_SERVICE_BASE_URL = process.env.AI_SERVICE_BASE_URL || "http://127.0.0.1:8001/api/v1";
 const AI_SERVICE_TIMEOUT_MS = Number(process.env.AI_SERVICE_TIMEOUT_MS || 10000);
+const AI_ANOMALY_ENDPOINT = process.env.AI_ANOMALY_ENDPOINT || `${AI_SERVICE_BASE_URL}/anomaly/detect`;
 const MAX_RECOMMENDATIONS_PER_PREDICTION = 3;
+const MIN_HISTORY_FOR_ANOMALY = 2;
+const MIN_RECORD_INTERVAL_DAYS = Math.max(1, Number(process.env.MIN_RECORD_INTERVAL_DAYS || 1));
 
 const RECOMMENDATION_GROUPS = {
     ACADEMIC: "ACADEMIC",
@@ -85,6 +88,193 @@ const RECOMMENDATION_TEMPLATES = {
 };
 
 class AcademicService {
+    isSameNullableNumber(a, b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+
+        const numA = Number(a);
+        const numB = Number(b);
+        if (Number.isNaN(numA) || Number.isNaN(numB)) return false;
+
+        return numA === numB;
+    }
+
+    toAnomalyFeatureVector(record) {
+        return {
+            gpa_current: typeof record?.gpa_current === "number" ? record.gpa_current : Number(record?.gpa_current ?? 0),
+            attendance_rate:
+                typeof record?.attendance_rate === "number" ? record.attendance_rate : Number(record?.attendance_rate ?? 0),
+            sentiment_score:
+                typeof record?.sentiment_score === "number" ? record.sentiment_score : Number(record?.sentiment_score ?? 0),
+            stress_level: typeof record?.stress_level === "number" ? record.stress_level : Number(record?.stress_level ?? 0),
+        };
+    }
+
+    async detectAnomalyViaAI({ studentUserId, latestRecord }) {
+        const history = await AcademicRecord.find({ student_user_id: studentUserId })
+            .sort({ recorded_at: 1, _id: 1 })
+            .select("gpa_current attendance_rate sentiment_score stress_level recorded_at term_id");
+
+        if (history.length < MIN_HISTORY_FOR_ANOMALY) {
+            return { skipped: true, reason: "insufficient_history" };
+        }
+
+        const historyVectors = history.map((item) => ({
+            ...this.toAnomalyFeatureVector(item),
+            recorded_at: item.recorded_at,
+        }));
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), AI_SERVICE_TIMEOUT_MS);
+
+        try {
+            const response = await fetch(AI_ANOMALY_ENDPOINT, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    student_user_id: String(studentUserId),
+                    latest_record_id: String(latestRecord._id),
+                    features: ["gpa_current", "attendance_rate", "sentiment_score", "stress_level"],
+                    history: historyVectors,
+                }),
+                signal: controller.signal,
+            });
+
+            let data = null;
+            try {
+                data = await response.json();
+            } catch {
+                data = null;
+            }
+
+            if (!response.ok) {
+                const detail = data?.detail || `AI anomaly service returned HTTP ${response.status}`;
+                throw new Error(detail);
+            }
+
+            return {
+                skipped: false,
+                isAnomaly: Boolean(data?.is_anomaly),
+                anomalyScore: typeof data?.anomaly_score === "number" ? data.anomaly_score : null,
+                anomalyType: typeof data?.anomaly_type === "string" ? data.anomaly_type : "Study anomaly",
+                modelName:
+                    typeof data?.model_name === "string"
+                        ? data.model_name
+                        : typeof data?.meta?.model_name === "string"
+                          ? data.meta.model_name
+                          : "IsolationForest",
+                triggeredFeatures: Array.isArray(data?.triggered_features) ? data.triggered_features : [],
+                zScores: data?.z_scores && typeof data.z_scores === "object" ? data.z_scores : null,
+                featureValues:
+                    data?.feature_values && typeof data.feature_values === "object" ? data.feature_values : null,
+            };
+        } catch (error) {
+            if (error?.name === "AbortError") {
+                throw new Error("AI anomaly service timeout");
+            }
+            throw error;
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    async createAnomalyAlertIfNeeded({ studentUserId, termId, academicRecordId, anomalyResult }) {
+        if (!anomalyResult?.isAnomaly) return null;
+
+        const score = anomalyResult.anomalyScore;
+        const severity = typeof score === "number" && score <= -0.2 ? "HIGH" : "MEDIUM";
+
+        return Alert.findOneAndUpdate(
+            { academic_record_id: academicRecordId, alert_type: "ANOMALY" },
+            {
+                $setOnInsert: {
+                    student_user_id: studentUserId,
+                    term_id: termId,
+                    alert_type: "ANOMALY",
+                    source_ai: "AI04_ANOMALY",
+                    severity,
+                    academic_record_id: academicRecordId,
+                    metadata: {
+                        anomaly_score: score,
+                        anomaly_type: anomalyResult.anomalyType,
+                        model_name: anomalyResult.modelName,
+                        triggered_features: anomalyResult.triggeredFeatures,
+                        z_scores: anomalyResult.zScores,
+                        feature_values: anomalyResult.featureValues,
+                    },
+                    detected_at: new Date(),
+                },
+            },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+        );
+    }
+
+    async notifyAdvisorForAnomalyAlert({ alert, studentUserId, anomalyResult }) {
+        if (!alert?._id) return;
+
+        const advisorId = await this.getAdvisorOfStudent(studentUserId);
+        if (!advisorId) return;
+
+        const student = await User.findById(studentUserId).select("profile.full_name student_info.student_code");
+        const studentName = student?.profile?.full_name || student?.student_info?.student_code || String(studentUserId);
+
+        const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const duplicate = await Notification.findOne({
+            recipient_user_id: advisorId,
+            alert_id: alert._id,
+            sent_at: { $gte: dedupeSince },
+        }).select("_id");
+        if (duplicate) return;
+
+        const zScores = anomalyResult?.zScores && typeof anomalyResult.zScores === "object" ? anomalyResult.zScores : {};
+        const featureValues =
+            anomalyResult?.featureValues && typeof anomalyResult.featureValues === "object"
+                ? anomalyResult.featureValues
+                : {};
+        const triggeredSet = new Set(
+            Array.isArray(anomalyResult?.triggeredFeatures) ? anomalyResult.triggeredFeatures : []
+        );
+
+        const featureLabelMap = {
+            gpa_current: "GPA hiện tại",
+            attendance_rate: "Tỷ lệ tham dự",
+            sentiment_score: "Điểm cảm xúc",
+            stress_level: "Mức stress",
+        };
+
+        const formatFeatureValue = (feature, value) => {
+            if (typeof value !== "number" || Number.isNaN(value)) return "N/A";
+            if (feature === "attendance_rate") return `${(value * 100).toFixed(0)}%`;
+            return value.toFixed(2);
+        };
+
+        const topSignals = Object.entries(zScores)
+            .map(([feature, z]) => ({
+                feature,
+                z: Number(z),
+                value: Number(featureValues[feature]),
+            }))
+            .filter((item) => !Number.isNaN(item.z) && (!triggeredSet.size || triggeredSet.has(item.feature)))
+            .sort((a, b) => Math.abs(b.z) - Math.abs(a.z))
+            .slice(0, 2)
+            .map((item) => {
+                const featureLabel = featureLabelMap[item.feature] || item.feature;
+                const direction = item.z >= 0 ? "tăng" : "giảm";
+                const zText = item.z >= 0 ? `+${item.z.toFixed(2)}` : item.z.toFixed(2);
+                const valueText = formatFeatureValue(item.feature, item.value);
+                return `${featureLabel} ${direction} (z=${zText}, value=${valueText})`;
+            });
+
+        const explainText = topSignals.length ? ` Tin hieu chinh: ${topSignals.join("; ")}.` : "";
+
+        await Notification.create({
+            recipient_user_id: advisorId,
+            alert_id: alert._id,
+            title: "Cảnh báo dấu hiệu bất thường",
+            content: `Sinh viên ${studentName} có dấu hiệu bất thường (${anomalyResult?.anomalyType || "Study anomaly"}).${explainText}`, 
+            sent_at: new Date(),
+        });
+    }
+
     resolveGroupRiskLevels(payload) {
         const academicHigh = payload.gpa_current < 2.5 || payload.num_failed >= 2;
         const academicLow = payload.gpa_current >= 2.8 && payload.num_failed === 0;
@@ -308,24 +498,58 @@ class AcademicService {
         ]);
         const computedSentimentScore = sentimentAgg.length ? sentimentAgg[0].avg_feedback_score : null;
 
+        const latestRecord = await AcademicRecord.findOne({
+            student_user_id: studentUserId,
+            term_id: data.term_id,
+        }).sort({ recorded_at: -1 });
+
+        const recordedAt = data.recorded_at ? new Date(data.recorded_at) : new Date();
+        if (Number.isNaN(recordedAt.getTime())) {
+            throwError("recorded_at is invalid", 422);
+        }
+
+        if (latestRecord?.recorded_at) {
+            const minRecordedAt = new Date(
+                latestRecord.recorded_at.getTime() + MIN_RECORD_INTERVAL_DAYS * 24 * 60 * 60 * 1000
+            );
+            if (recordedAt < minRecordedAt) {
+                throwError(
+                    `recorded_at must be at least ${MIN_RECORD_INTERVAL_DAYS} days after the latest record in this term`,
+                    422
+                );
+            }
+        }
+
+        const resolvedGpaPrevSem =
+            data.gpa_prev_sem !== undefined ? data.gpa_prev_sem : latestRecord?.gpa_prev_sem;
+        if (
+            latestRecord &&
+            !this.isSameNullableNumber(latestRecord.gpa_prev_sem, resolvedGpaPrevSem)
+        ) {
+            throwError("gpa_prev_sem cannot be changed within the same term", 422);
+        }
+
         const payload = {
-            gpa_prev_sem: data.gpa_prev_sem,
-            gpa_current: data.gpa_current,
-            num_failed: data.num_failed,
-            attendance_rate: data.attendance_rate,
-            shcvht_participation: data.shcvht_participation,
-            study_hours: data.study_hours,
-            motivation_score: data.motivation_score,
-            stress_level: data.stress_level,
+            student_user_id: studentUserId,
+            term_id: data.term_id,
+            gpa_prev_sem: resolvedGpaPrevSem,
+            gpa_current: data.gpa_current !== undefined ? data.gpa_current : latestRecord?.gpa_current,
+            num_failed: data.num_failed !== undefined ? data.num_failed : latestRecord?.num_failed,
+            attendance_rate:
+                data.attendance_rate !== undefined ? data.attendance_rate : latestRecord?.attendance_rate,
+            shcvht_participation:
+                data.shcvht_participation !== undefined
+                    ? data.shcvht_participation
+                    : latestRecord?.shcvht_participation,
+            study_hours: data.study_hours !== undefined ? data.study_hours : latestRecord?.study_hours,
+            motivation_score:
+                data.motivation_score !== undefined ? data.motivation_score : latestRecord?.motivation_score,
+            stress_level: data.stress_level !== undefined ? data.stress_level : latestRecord?.stress_level,
             sentiment_score: computedSentimentScore,
-            recorded_at: data.recorded_at || new Date(),
+            recorded_at: recordedAt,
         };
 
-        const updated = await AcademicRecord.findOneAndUpdate(
-            { student_user_id: studentUserId, term_id: data.term_id },
-            { $set: payload, $setOnInsert: { student_user_id: studentUserId, term_id: data.term_id } },
-            { new: true, upsert: true }
-        );
+        const updated = await AcademicRecord.create(payload);
 
         const riskPayload = {
             gpa_current: Number(updated.gpa_current),
@@ -386,6 +610,33 @@ class AcademicService {
         } catch (error) {
             // Do not block academic submit if AI service is temporarily unavailable.
             console.warn("AI risk unavailable, skip saving risk prediction:", error?.message || error);
+        }
+
+        try {
+            const anomalyResult = await this.detectAnomalyViaAI({
+                studentUserId,
+                latestRecord: updated,
+            });
+
+            if (!anomalyResult?.skipped) {
+                const anomalyAlert = await this.createAnomalyAlertIfNeeded({
+                    studentUserId,
+                    termId: data.term_id,
+                    academicRecordId: updated._id,
+                    anomalyResult,
+                });
+
+                if (anomalyAlert) {
+                    await this.notifyAdvisorForAnomalyAlert({
+                        alert: anomalyAlert,
+                        studentUserId,
+                        anomalyResult,
+                    });
+                }
+            }
+        } catch (error) {
+            // Do not block academic submit if AI anomaly service is temporarily unavailable.
+            console.warn("AI anomaly unavailable, skip anomaly detection:", error?.message || error);
         }
 
         return updated;

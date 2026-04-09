@@ -28,7 +28,7 @@ const academicRecordSchema = new mongoose.Schema(
     { timestamps: true, collection: "academic_records" }
 );
 
-academicRecordSchema.index({ student_user_id: 1, term_id: 1 }, { unique: true });
+academicRecordSchema.index({ student_user_id: 1, term_id: 1, recorded_at: -1 });
 academicRecordSchema.index({ student_user_id: 1, recorded_at: -1 });
 
 module.exports = mongoose.model("AcademicRecord", academicRecordSchema);
