@@ -1,4 +1,4 @@
-# FastAPI AI Services
+xoa# FastAPI AI Services
 
 Dịch vụ này chứa 3 module AI được sử dụng bởi `BACKEND-ADVISOR`:
 
@@ -6,7 +6,9 @@ Dịch vụ này chứa 3 module AI được sử dụng bởi `BACKEND-ADVISOR`
 - AI-02: Phân tích Cảm xúc
 - AI-04: Phát hiện Bất thường Học tập
 
-## 1) Cài đặt
+## 1) Cài đặt uv
+
+**Lưu ý**: Phần này chỉ cài đặt `uv` (package manager). Để cài đặt các thư viện cần thiết cho training model, xem [Tài liệu Training](#4-tài-liệu-training).
 
 Nếu chưa cài đặt `uv` (Windows):
 - `winget install --id=astral-sh.uv -e`
@@ -20,6 +22,10 @@ uv sync
 
 ## 2) Chạy ứng dụng
 
+**Lưu ý**: 
+- Đọc kỹ [Tài liệu Training](#4-tài-liệu-training) để hiểu cách chuẩn bị data và train model trước khi chạy
+- Service này cần được chạy **TRƯỚC** khi khởi động BACKEND-ADVISOR để đảm bảo AI services sẵn sàng
+
 ```bash
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
@@ -28,79 +34,19 @@ Tài liệu:
 - Swagger: `http://localhost:8001/docs`
 - Health check: `http://localhost:8001/api/v1/health`
 
-## 4) API Endpoints
+## 3) API Endpoints
 
 - `GET /api/v1/health` - Kiểm tra trạng thái
 - `POST /api/v1/risk/predict` (AI-01) - Dự báo rủi ro
 - `POST /api/v1/sentiment/classify` (AI-02) - Phân loại cảm xúc
 - `POST /api/v1/anomaly/detect` (AI-04) - Phát hiện bất thường
 
-## 5) AI-04 Contract
+## 4) Tài liệu Training
 
-Request:
+Hướng dẫn chi tiết về cách chuẩn bị dữ liệu và train các model AI:
+- **[ML Training Guide](ml/README.md)** - Hướng dẫn train AI-02 (Sentiment), AI-01 (Risk Prediction) và cấu hình AI-04 (Anomaly Detection)
 
-```json
-{
-  "student_user_id": "student-id",
-  "latest_record_id": "record-id",
-  "features": ["gpa_current", "attendance_rate", "sentiment_score", "stress_level"],
-  "history": [
-    {
-      "gpa_current": 2.8,
-      "attendance_rate": 0.85,
-      "sentiment_score": 0.1,
-      "stress_level": 2,
-      "recorded_at": "2026-04-01T10:00:00Z"
-    }
-  ]
-}
-```
+## 5) Tài liệu Kiến trúc
 
-Response:
-
-```json
-{
-  "student_user_id": "student-id",
-  "latest_record_id": "record-id",
-  "is_anomaly": false,
-  "anomaly_score": 0.12,
-  "anomaly_type": "Study anomaly",
-  "triggered_features": ["attendance_rate", "stress_level"],
-  "z_scores": {
-    "gpa_current": -0.9,
-    "attendance_rate": -0.4,
-    "sentiment_score": 0.3,
-    "stress_level": 0.7
-  },
-  "feature_values": {
-    "gpa_current": 2.8,
-    "attendance_rate": 0.85,
-    "sentiment_score": 0.1,
-    "stress_level": 2.0
-  },
-  "meta": {
-    "model_name": "IsolationForest+ZScore",
-    "version": "0.1"
-  }
-}
-```
-
-Ghi chú:
-- AI-04 là model không giám sát (unsupervised).
-- Chỉ sử dụng lịch sử của sinh viên (đã được sắp xếp theo `recorded_at` ở backend).
-- Khi `history < 5`: dùng delta fallback so với điểm gần nhất:
-  - `gpa_current` giảm `>= 0.5`
-  - `attendance_rate` giảm `>= 0.3`
-  - `sentiment_score` giảm `>= 0.4`
-  - `stress_level` tăng `>= 2.0`
-- Khi `history >= 5`: dùng Isolation Forest + directional Z-score:
-  - `gpa_current z <= -2.0`
-  - `attendance_rate z <= -2.0`
-  - `sentiment_score z <= -2.0`
-  - `stress_level z >= +2.0`
-  - Cảnh báo khi `IsolationForest == anomaly` AND có ít nhất 1 directional trigger.
-
-## 6) Tài liệu Training
-
-Tài liệu huấn luyện model:
-- `ml/README.md`
+Tài liệu mô tả chi tiết kiến trúc, luồng thực thi và cách tích hợp các AI services:
+- **[AI Services Overview](AI_SERVICES_OVERVIEW.md)** - Kiến trúc hệ thống, thứ tự thực thi, input/output của từng AI, và luồng tích hợp với Backend

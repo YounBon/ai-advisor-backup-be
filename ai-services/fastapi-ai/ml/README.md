@@ -1,6 +1,6 @@
-# ML Training Guide (AI-01 + AI-02 + AI-04)
+# ML Training Guide (AI-02 + AI-01 + AI-04)
 
-## 1) Cài dependencies train
+## 1) Cài đặt thư viện cần thiết
 
 ```bash
 cd ai-services/fastapi-ai
@@ -9,14 +9,56 @@ uv venv
 uv sync --group train
 ```
 
-## 2) Train AI-01 (Risk Prediction)
+## 2) Train AI-02 (Sentiment PhoBERT)
 
-### 2.1 Chuẩn bị dữ liệu AI-01
+### 2.1 Chuẩn bị dữ liệu AI-02
+
+Đặt file CSV vào:
+- `ml/sentiment/data/sentiment_train.csv`
+
+Cột bắt buộc:
+- `feedback_text`
+- `sentiment_label` (`NEGATIVE`, `NEUTRAL`, `POSITIVE`)
+
+Cột optional:
+- `rating`
+
+Nếu muốn tạo dữ liệu mẫu để test nhanh, bạn có thể chạy lệnh sau hoặc nhờ AI gen các câu feedback thông thường:
+
+```bash
+uv run python ml/sentiment/data/gen_data.py
+```
+
+### 2.2 Chuẩn bị model PhoBERT base
+
+```bash
+uv run python ml/sentiment/scripts/prepare_phobert.py
+```
+
+Output:
+- `ml/sentiment/artifacts/checkpoints/phobert-base-initial`
+
+### 2.3 Train model
+
+```bash
+uv run python ml/sentiment/scripts/train_sentiment.py --config ml/sentiment/configs/sentiment_train.yaml
+```
+
+Output checkpoint:
+- `ml/sentiment/artifacts/checkpoints/phobert-sentiment/final`
+
+### 2.4 Dự đoán nhanh 1 câu
+
+```bash
+uv run python ml/sentiment/scripts/predict_sentiment.py --text "Buổi SHCVHT rất hữu ích"
+```
+
+## 3) Train AI-01 (Risk Prediction)
+
+### 3.1 Chuẩn bị dữ liệu AI-01
 
 Đặt file CSV vào:
 - `ml/risk/data/risk_train.csv`
-- `ml/risk/data/risk_valid.csv`
-- `ml/risk/data/risk_test.csv` (khuyên nghị)
 
 Cột bắt buộc:
 - `gpa_current` (0..4)
@@ -63,7 +105,7 @@ uv run python ml/risk/data/check_risk_data.py
 
 Output sẽ hiển thị số lượng và tỉ lệ (%) của từng nhãn `-1/0/1` cho `train/valid/test`.
 
-### 2.2 Train AI-01
+### 3.2 Train model AI-01
 
 ```bash
 uv run python ml/risk/scripts/train_risk.py --config ml/risk/configs/risk_train.yaml
@@ -72,13 +114,7 @@ uv run python ml/risk/scripts/train_risk.py --config ml/risk/configs/risk_train.
 Output checkpoint:
 - `ml/risk/artifacts/checkpoints/risk-rf/final/model.pkl`
 
-### 2.3 Evaluate AI-01
-
-```bash
-uv run python ml/risk/scripts/eval_risk.py --config ml/risk/configs/risk_train.yaml
-```
-
-### 2.4 Predict bằng file sửa trực tiếp
+### 3.3 Dự đoán với input tùy chỉnh
 
 Mở file:
 - `ml/risk/scripts/predict_risk_edit_input.py`
@@ -94,89 +130,38 @@ Script sẽ in:
 - `risk_score`
 - `risk_label`
 
-## 3) Train AI-02 (Sentiment PhoBERT)
+## 4) AI-04 (Anomaly Detection)
 
-### 3.1 Chuẩn bị dữ liệu AI-02
+AI-04 là unsupervised model - **KHÔNG CẦN TRAIN**, chỉ cần có dữ liệu điểm là chạy được.
 
-Đặt file CSV vào:
-- `ml/sentiment/data/sentiment_train.csv`
-- `ml/sentiment/data/sentiment_valid.csv`
-- `ml/sentiment/data/sentiment_test.csv` (khuyến nghị)
-
-Cột bắt buộc:
-- `feedback_text`
-- `sentiment_label` (`NEGATIVE`, `NEUTRAL`, `POSITIVE`)
-
-Cột optional:
-- `rating`
-
-Nếu muốn tạo dữ liệu mẫu để test nhanh:
-
-```bash
-uv run python ml/sentiment/data/gen_data.py
-```
-
-### 3.2 Prepare PhoBERT base
-
-```bash
-uv run python ml/sentiment/scripts/prepare_phobert.py
-```
-
-Output:
-- `ml/sentiment/artifacts/checkpoints/phobert-base-initial`
-
-### 3.3 Train
-
-```bash
-uv run python ml/sentiment/scripts/train_sentiment.py --config ml/sentiment/configs/sentiment_train.yaml
-```
-
-Output checkpoint:
-- `ml/sentiment/artifacts/checkpoints/phobert-sentiment/final`
-
-### 3.4 Evaluate
-
-```bash
-uv run python ml/sentiment/scripts/eval_sentiment.py --config ml/sentiment/configs/sentiment_train.yaml
-```
-
-### 3.5 Predict nhanh 1 text
-
-```bash
-uv run python ml/sentiment/scripts/predict_sentiment.py --text "Buoi SHCVHT rat huu ich"
-```
-
-## 4) Score mapping mặc định (AI-02)
-
-`feedback_score = P(NEGATIVE) - P(POSITIVE)`  
-Giá trị nằm trong `[-1, 1]`.
-
-## 5) AI-04 (Anomaly Detection)
-
-AI-04 in this MVP is unsupervised and inference-only:
+### Cơ chế hoạt động
 - Model: Isolation Forest + Z-score
 - Feature set: `gpa_current`, `attendance_rate`, `sentiment_score`, `stress_level`
-- Input: full student history (already sorted by backend using `recorded_at`)
+- Input: full student history (đã sorted theo `recorded_at`)
 - Output: `is_anomaly`, `anomaly_score`, `anomaly_type`, `z_scores`
 
-No offline training checkpoint is required for this version.
+### Yêu cầu dữ liệu
+- **Tối thiểu**: 2 bản ghi history để chạy Delta Rules
+- **Tốt nhất**: 5+ bản ghi để chạy Isolation Forest + Z-score
+- Không cần checkpoint training, model chạy trực tiếp trên dữ liệu history của sinh viên
 
-Runtime knobs (from `.env`):
-- `ANOMALY_CONTAMINATION` (default `0.15`)
-- `ANOMALY_DIRECTIONAL_Z_THRESHOLD` (default `2.0`)
-- `ANOMALY_MIN_HISTORY_FOR_STAT_MODEL` (default `5`)
-- `ANOMALY_DELTA_GPA` (default `0.5`)
-- `ANOMALY_DELTA_ATTENDANCE` (default `0.3`)
-- `ANOMALY_DELTA_SENTIMENT` (default `0.4`)
-- `ANOMALY_DELTA_STRESS` (default `2.0`)
+### Các thông số cấu hình
 
-## 6) Dùng checkpoint trong FastAPI
+| Thông số | Giá trị mặc định | Mô tả |
+|----------|------------------|--------|
+| `ANOMALY_CONTAMINATION` | `0.15` | Tỉ lệ anomaly dự kiến trong dữ liệu |
+| `ANOMALY_DIRECTIONAL_Z_THRESHOLD` | `2.0` | Ngưỡng Z-score để phát hiện bất thường |
+| `ANOMALY_MIN_HISTORY_FOR_STAT_MODEL` | `5` | Số bản ghi tối thiểu để dùng Isolation Forest |
+| `ANOMALY_DELTA_GPA` | `0.5` | Ngưỡng giảm GPA bất thường |
+| `ANOMALY_DELTA_ATTENDANCE` | `0.3` | Ngưỡng giảm attendance bất thường |
+| `ANOMALY_DELTA_SENTIMENT` | `0.4` | Ngưỡng giảm sentiment bất thường |
+| `ANOMALY_DELTA_STRESS` | `2.0` | Ngưỡng tăng stress bất thường |
 
-Set env cho AI-01:
-- `RISK_MODEL_DIR=ml/risk/artifacts/checkpoints/risk-rf/final`
+### Cơ chế 3 tầng
+1. **Tier 0 - Hard Rules**: Cảnh báo ngay nếu giá trị nguy hiểm (GPA < 1.5, attendance < 0.5, sentiment < -0.8, stress >= 5)
+2. **Tier 1 - Delta Rules** (history < 5): So sánh với bản ghi gần nhất
+3. **Tier 2 - Isolation Forest + Z-score** (history >= 5): Phát hiện bất thường dựa trên thống kê lịch sử
 
-Set env:
-- `SENTIMENT_MODEL_DIR=ml/sentiment/artifacts/checkpoints/phobert-sentiment/final`
-
+## 5) Sử dụng checkpoint trong FastAPI
 Nếu không có checkpoint sentiment, service sentiment trả lời `503 model not ready`.
 Nếu không có checkpoint risk, service risk fallback sang `risk-baseline`.
