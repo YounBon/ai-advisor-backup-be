@@ -25,7 +25,7 @@ class DashboardService {
                 .sort({ recorded_at: -1 })
                 .limit(historyLimit)
                 .select(
-                    "student_user_id term_id gpa_prev_sem gpa_current num_failed attendance_rate sentiment_score recorded_at"
+                    "student_user_id term_id gpa_prev_sem gpa_current num_failed attendance_rate shcvht_participation study_hours motivation_score stress_level sentiment_score recorded_at"
                 )
                 .populate("term_id", "term_code term_name"),
             Feedback.aggregate([
@@ -113,7 +113,7 @@ class DashboardService {
             Alert.find({
                 student_user_id: { $in: studentIds },
                 status: "OPEN",
-                alert_type: { $in: ["RISK", "SENTIMENT"] },
+                alert_type: { $in: ["RISK", "SENTIMENT", "ANOMALY"] },
             })
                 .select("_id student_user_id alert_type severity status detected_at")
                 .sort({ detected_at: -1 }),
@@ -126,14 +126,16 @@ class DashboardService {
         ]);
 
         const recentAlerts = recentAlertsRaw
-            .filter((item) => ["RISK", "SENTIMENT"].includes(item.alert_id?.alert_type))
+            .filter((item) => ["RISK", "SENTIMENT", "ANOMALY"].includes(item.alert_id?.alert_type))
             .slice(0, 20);
 
         const riskMap = new Map(riskRows.map((row) => [String(row._id), row.latest]));
         const riskAlertCountMap = new Map();
         const sentimentAlertCountMap = new Map();
+        const anomalyAlertCountMap = new Map();
         const riskAlerts = [];
         const sentimentAlerts = [];
+        const anomalyAlerts = [];
 
         for (const alert of openAlerts) {
             const key = String(alert.student_user_id);
@@ -145,6 +147,11 @@ class DashboardService {
             if (alert.alert_type === "SENTIMENT") {
                 sentimentAlertCountMap.set(key, (sentimentAlertCountMap.get(key) || 0) + 1);
                 sentimentAlerts.push(alert);
+                continue;
+            }
+            if (alert.alert_type === "ANOMALY") {
+                anomalyAlertCountMap.set(key, (anomalyAlertCountMap.get(key) || 0) + 1);
+                anomalyAlerts.push(alert);
             }
         }
 
@@ -176,9 +183,11 @@ class DashboardService {
             alert_cards: {
                 risk_open: riskAlerts.length,
                 sentiment_open: sentimentAlerts.length,
+                anomaly_open: anomalyAlerts.length,
             },
             risk_alerts: riskAlerts.slice(0, 20),
             sentiment_alerts: sentimentAlerts.slice(0, 20),
+            anomaly_alerts: anomalyAlerts.slice(0, 20),
             pagination: {
                 page,
                 limit,
@@ -240,10 +249,16 @@ class DashboardService {
                 {
                     $group: {
                         _id: {
-                            status: "$status",
+                            alert_type: "$alert_type",
                             severity: "$severity",
                         },
                         count: { $sum: 1 },
+                    },
+                },
+                {
+                    $sort: {
+                        "_id.alert_type": 1,
+                        "_id.severity": 1,
                     },
                 },
             ]),

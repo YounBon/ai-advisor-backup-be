@@ -16,6 +16,14 @@ DELTA_THRESHOLDS = {
     "stress_level": float(os.getenv("ANOMALY_DELTA_STRESS", "2.0")),
 }
 
+# Hard rules for critical thresholds (trigger even with 1-2 records)
+HARD_RULE_THRESHOLDS = {
+    "gpa_current": float(os.getenv("ANOMALY_HARD_GPA", "1.0")),
+    "attendance_rate": float(os.getenv("ANOMALY_HARD_ATTENDANCE", "0.3")),
+    "sentiment_score": float(os.getenv("ANOMALY_HARD_SENTIMENT", "-0.7")),
+    "stress_level": float(os.getenv("ANOMALY_HARD_STRESS", "5.0")),
+}
+
 
 def _resolve_contamination() -> float:
     raw = float(os.getenv("ANOMALY_CONTAMINATION", "0.15"))
@@ -56,12 +64,49 @@ def _pick_anomaly_type(z_scores: dict[str, float], triggered_features: list[str]
     return "Study anomaly"
 
 
-def _pick_anomaly_type_from_features(triggered_features: list[str]) -> str:
-    if "attendance_rate" in triggered_features:
+def _pick_anomaly_type_from_features(triggered_features: list[str], feature_values: dict[str, float], delta_scores: dict[str, float] | None = None, delta_triggered_features: list[str] | None = None) -> str:
+    """Pick anomaly type based on the most significant triggered feature.
+    
+    Priority:
+    1. Features with significant delta changes (delta-triggered)
+    2. Features from hard rules only if no delta-triggered features
+    """
+    if not triggered_features:
+        return "Study anomaly"
+    
+    # If we have delta scores, pick the feature with largest absolute change
+    if delta_scores:
+        # Prefer delta-triggered features over hard-rule-only features
+        candidates = delta_triggered_features if delta_triggered_features else triggered_features
+        
+        primary_feature = max(
+            candidates, 
+            key=lambda key: abs(delta_scores.get(key, 0.0))
+        )
+    else:
+        # Fallback: just pick first triggered feature
+        primary_feature = triggered_features[0]
+    
+    if primary_feature == "attendance_rate":
         return "Attendance anomaly"
-    if "sentiment_score" in triggered_features:
+    if primary_feature == "sentiment_score":
         return "Sentiment anomaly"
+    # gpa_current or stress_level → Study anomaly
     return "Study anomaly"
+
+
+def _check_hard_rules(feature_values: dict[str, float]) -> list[str]:
+    """Check if current values violate critical hard rule thresholds."""
+    triggered: list[str] = []
+    if feature_values.get("gpa_current") <= HARD_RULE_THRESHOLDS["gpa_current"]:
+        triggered.append("gpa_current")
+    if feature_values.get("attendance_rate") <= HARD_RULE_THRESHOLDS["attendance_rate"]:
+        triggered.append("attendance_rate")
+    if feature_values.get("sentiment_score") <= HARD_RULE_THRESHOLDS["sentiment_score"]:
+        triggered.append("sentiment_score")
+    if feature_values.get("stress_level") >= HARD_RULE_THRESHOLDS["stress_level"]:
+        triggered.append("stress_level")
+    return triggered
 
 
 def detect_anomaly(payload: AnomalyRequest) -> AnomalyResponse:
@@ -79,6 +124,7 @@ def detect_anomaly(payload: AnomalyRequest) -> AnomalyResponse:
             feature: float(latest_values[i] - prev_values[i]) for i, feature in enumerate(FEATURE_COLUMNS)
         }
 
+        # Check delta-based triggers
         triggered_features: list[str] = []
         if deltas["gpa_current"] <= -DELTA_THRESHOLDS["gpa_current"]:
             triggered_features.append("gpa_current")
@@ -89,17 +135,28 @@ def detect_anomaly(payload: AnomalyRequest) -> AnomalyResponse:
         if deltas["stress_level"] >= DELTA_THRESHOLDS["stress_level"]:
             triggered_features.append("stress_level")
 
-        is_anomaly = bool(triggered_features)
+        # Check hard rule triggers (critical absolute thresholds)
+        hard_rule_triggered = _check_hard_rules(feature_values)
+        all_triggered = list(set(triggered_features + hard_rule_triggered))
+
+        is_anomaly = bool(all_triggered)
+        
+        # For delta fallback, return actual deltas (not normalized)
+        # Negative = decreased, Positive = increased
+        delta_scores: dict[str, float] = {
+            feature: deltas[feature] for feature in FEATURE_COLUMNS
+        }
+
         return AnomalyResponse(
             student_user_id=payload.student_user_id,
             latest_record_id=payload.latest_record_id,
             is_anomaly=is_anomaly,
             anomaly_score=-1.0 if is_anomaly else 0.0,
-            anomaly_type=_pick_anomaly_type_from_features(triggered_features),
-            triggered_features=triggered_features,
-            z_scores={feature: 0.0 for feature in FEATURE_COLUMNS},
+            anomaly_type=_pick_anomaly_type_from_features(all_triggered, feature_values, delta_scores, triggered_features),
+            triggered_features=all_triggered,
+            z_scores=delta_scores,
             feature_values=feature_values,
-            meta=Meta(model_name="DeltaFallback+IsolationForest+ZScore"),
+            meta=Meta(model_name="DeltaFallback+HardRules"),
         )
 
     model = IsolationForest(

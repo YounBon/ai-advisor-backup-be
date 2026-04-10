@@ -16,7 +16,7 @@ const AI_SERVICE_TIMEOUT_MS = Number(process.env.AI_SERVICE_TIMEOUT_MS || 10000)
 const AI_ANOMALY_ENDPOINT = process.env.AI_ANOMALY_ENDPOINT || `${AI_SERVICE_BASE_URL}/anomaly/detect`;
 const MAX_RECOMMENDATIONS_PER_PREDICTION = 3;
 const MIN_HISTORY_FOR_ANOMALY = 2;
-const MIN_RECORD_INTERVAL_DAYS = Math.max(1, Number(process.env.MIN_RECORD_INTERVAL_DAYS || 1));
+const MIN_RECORD_INTERVAL_DAYS = Math.max(1, Number(process.env.MIN_RECORD_INTERVAL_DAYS || 7));
 
 const RECOMMENDATION_GROUPS = {
     ACADEMIC: "ACADEMIC",
@@ -233,6 +233,8 @@ class AcademicService {
         const triggeredSet = new Set(
             Array.isArray(anomalyResult?.triggeredFeatures) ? anomalyResult.triggeredFeatures : []
         );
+        const modelName = anomalyResult?.modelName || "";
+        const isDeltaMode = modelName.includes("DeltaFallback");
 
         const featureLabelMap = {
             gpa_current: "GPA hiện tại",
@@ -247,6 +249,8 @@ class AcademicService {
             return value.toFixed(2);
         };
 
+        // Delta mode: zScores contains actual deltas (current - previous)
+        // Z-score mode: zScores contains statistical z-scores
         const topSignals = Object.entries(zScores)
             .map(([feature, z]) => ({
                 feature,
@@ -258,13 +262,36 @@ class AcademicService {
             .slice(0, 2)
             .map((item) => {
                 const featureLabel = featureLabelMap[item.feature] || item.feature;
-                const direction = item.z >= 0 ? "tăng" : "giảm";
-                const zText = item.z >= 0 ? `+${item.z.toFixed(2)}` : item.z.toFixed(2);
                 const valueText = formatFeatureValue(item.feature, item.value);
-                return `${featureLabel} ${direction} (z=${zText}, value=${valueText})`;
+                
+                let direction;
+                let changeText;
+                
+                if (isDeltaMode) {
+                    // Delta mode: z = current - previous (actual change)
+                    const delta = item.z;
+                    const absDelta = Math.abs(delta).toFixed(2);
+                    
+                    if (item.feature === "stress_level") {
+                        // Stress: increase = bad
+                        direction = delta > 0 ? "tăng" : "giảm";
+                    } else {
+                        // GPA, attendance, sentiment: decrease = bad
+                        direction = delta < 0 ? "giảm" : "tăng";
+                    }
+                    changeText = `thay đổi=${delta > 0 ? '+' : ''}${delta.toFixed(2)}`;
+                } else {
+                    // Z-score mode: statistical z-score
+                    const isBadDirection = 
+                        item.feature === "stress_level" ? item.z >= 0 : item.z <= 0;
+                    direction = isBadDirection ? "tăng đột biến" : "giảm mạnh";
+                    changeText = `z=${item.z >= 0 ? '+' : ''}${item.z.toFixed(2)}`;
+                }
+                
+                return `${featureLabel} ${direction} (${changeText}, giá trị=${valueText})`;
             });
 
-        const explainText = topSignals.length ? ` Tin hieu chinh: ${topSignals.join("; ")}.` : "";
+        const explainText = topSignals.length ? `${topSignals.join("; ")}.` : "";
 
         await Notification.create({
             recipient_user_id: advisorId,
@@ -513,10 +540,10 @@ class AcademicService {
                 latestRecord.recorded_at.getTime() + MIN_RECORD_INTERVAL_DAYS * 24 * 60 * 60 * 1000
             );
             if (recordedAt < minRecordedAt) {
-                throwError(
-                    `recorded_at must be at least ${MIN_RECORD_INTERVAL_DAYS} days after the latest record in this term`,
-                    422
-                );
+                const error = new Error(`Không thể nộp bài. Vui lòng chờ đến khi hết thời gian cooldown.`);
+                error.statusCode = 422;
+                error.remainingTime = minRecordedAt.getTime() - Date.now();
+                throw error;
             }
         }
 
