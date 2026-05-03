@@ -136,7 +136,8 @@ class StudentService {
 
         const student = await User.findOne({ _id: studentUserId, role: "STUDENT" }).select(
             "_id org student_info"
-        );
+        ).populate("org.department_id", "department_code department_name")
+            .populate("org.major_id", "major_code major_name");
         if (!student) throwError("Student not found", 404);
 
         let advisorClass = null;
@@ -165,18 +166,32 @@ class StudentService {
 
         let departmentDisplay = null;
         let majorDisplay = null;
-        if (advisorClass?.department_id) {
-            const dept = await Department.findById(advisorClass.department_id)
-                .select("department_code department_name")
-                .lean();
-            if (dept) {
-                departmentDisplay = [dept.department_code, dept.department_name].filter(Boolean).join(" — ");
+
+        // Ưu tiên lấy từ advisor_class, fallback về org của student
+        const deptSource = advisorClass?.department_id || student.org?.department_id;
+        const majorSource = advisorClass?.major_id || student.org?.major_id;
+
+        if (deptSource) {
+            // Nếu đã populate (object), dùng luôn; nếu là ObjectId thì query
+            if (typeof deptSource === 'object' && deptSource.department_name) {
+                departmentDisplay = [deptSource.department_code, deptSource.department_name].filter(Boolean).join(" — ");
+            } else {
+                const dept = await Department.findById(deptSource)
+                    .select("department_code department_name")
+                    .lean();
+                if (dept) {
+                    departmentDisplay = [dept.department_code, dept.department_name].filter(Boolean).join(" — ");
+                }
             }
         }
-        if (advisorClass?.major_id) {
-            const maj = await Major.findById(advisorClass.major_id).select("major_code major_name").lean();
-            if (maj) {
-                majorDisplay = [maj.major_code, maj.major_name].filter(Boolean).join(" — ");
+        if (majorSource) {
+            if (typeof majorSource === 'object' && majorSource.major_name) {
+                majorDisplay = [majorSource.major_code, majorSource.major_name].filter(Boolean).join(" — ");
+            } else {
+                const maj = await Major.findById(majorSource).select("major_code major_name").lean();
+                if (maj) {
+                    majorDisplay = [maj.major_code, maj.major_name].filter(Boolean).join(" — ");
+                }
             }
         }
 

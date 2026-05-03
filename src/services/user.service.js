@@ -196,23 +196,23 @@ class UserService {
                 joined_at: m.joined_at,
                 class: cls
                     ? {
-                          _id: cls._id,
-                          class_code: cls.class_code,
-                          class_name: cls.class_name,
-                          status: cls.status,
-                          cohort_year: cls.cohort_year,
-                          department_name: getDepartmentName(cls.department_id),
-                          major_name: getMajorName(cls.major_id),
-                      }
+                        _id: cls._id,
+                        class_code: cls.class_code,
+                        class_name: cls.class_name,
+                        status: cls.status,
+                        cohort_year: cls.cohort_year,
+                        department_name: getDepartmentName(cls.department_id),
+                        major_name: getMajorName(cls.major_id),
+                    }
                     : null,
                 advisor: adv
                     ? {
-                          _id: adv._id,
-                          username: adv.username,
-                          email: adv.email,
-                          profile: adv.profile,
-                          advisor_info: adv.advisor_info,
-                      }
+                        _id: adv._id,
+                        username: adv.username,
+                        email: adv.email,
+                        profile: adv.profile,
+                        advisor_info: adv.advisor_info,
+                    }
                     : null,
             };
         });
@@ -236,6 +236,28 @@ class UserService {
 
         if (!user) throwError("user not found", 404);
         return user;
+    }
+
+    /** Đổi mật khẩu — yêu cầu mật khẩu cũ đúng. */
+    async changePassword(body, currentUser) {
+        const userId = currentUser?.userId;
+        if (!userId) throwError("unauthorized", 401);
+
+        const { old_password, new_password } = body;
+        if (!old_password || !new_password) throwError("old_password and new_password are required", 422);
+        if (new_password.length < 6) throwError("new_password must be at least 6 characters", 422);
+        if (old_password === new_password) throwError("new_password must be different from old_password", 422);
+
+        const user = await User.findById(userId).select("+password_hash");
+        if (!user) throwError("user not found", 404);
+
+        const isMatch = await user.comparePassword(old_password);
+        if (!isMatch) throwError("Mật khẩu cũ không đúng", 401);
+
+        user.password_hash = new_password; // pre-save hook sẽ hash
+        await user.save();
+
+        return { updated: true };
     }
 
     /** Обновление собственного профиля (без смены роли/email/username). */

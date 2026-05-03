@@ -37,6 +37,15 @@ class UserController {
         }
     }
 
+    async changePassword(req, res, next) {
+        try {
+            const result = await userService.changePassword(req.body, req.user);
+            return res.status(200).json({ message: "Đổi mật khẩu thành công", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async updateMyProfile(req, res, next) {
         try {
             const result = await userService.updateMyProfile(req.body, req.user);

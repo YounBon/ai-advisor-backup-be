@@ -1,9 +1,9 @@
 module.exports = (err, req, res, next) => {
     if (err?.name === "MulterError" && err?.code === "LIMIT_FILE_SIZE") {
-        return res.status(422).json({ message: "file size must be less than or equal to 5MB" });
+        return res.status(422).json({ message: "Dung lượng tệp phải nhỏ hơn hoặc bằng 5MB" });
     }
     
-    const response = { message: err.message || "Internal server error" };
+    const response = { message: err.message || "Đã có lỗi xảy ra" };
     
     // Include additional error data if present (e.g., remainingTime)
     if (err.remainingTime !== undefined) {

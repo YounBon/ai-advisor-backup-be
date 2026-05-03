@@ -165,12 +165,7 @@ class MeetingService {
                 class_id: classId,
                 advisor_user_id: advisorId,
                 class_label: [classCode, className].filter(Boolean).join(" — ") || classId || "—",
-                advisor_label:
-                    [advisorName, advisorStaffCode ? `(${advisorStaffCode})` : "", advisorEmail]
-                        .filter(Boolean)
-                        .join(" • ") ||
-                    advisorId ||
-                    "—",
+                advisor_label: advisorName || advisorId || "—",
                 meeting_time: meeting.meeting_time,
                 meeting_end_time: meeting.meeting_end_time,
                 feedback_count: stat?.feedback_count || 0,

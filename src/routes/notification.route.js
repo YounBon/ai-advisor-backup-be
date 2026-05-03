@@ -8,6 +8,13 @@ const authorizeRoles = require("../middlewares/authorize.middleware");
 const router = express.Router();
 
 router.post(
+    "/mark-read",
+    authMiddleware,
+    authorizeRoles("STUDENT", "ADVISOR", "FACULTY", "ADMIN"),
+    notificationController.markAsRead
+);
+
+router.post(
     "/list",
     authMiddleware,
     authorizeRoles("STUDENT", "ADVISOR", "FACULTY", "ADMIN"),

@@ -9,6 +9,8 @@ const router = express.Router();
 
 router.post("/me", authMiddleware, userController.getMe);
 
+router.post("/me/change-password", authMiddleware, userController.changePassword);
+
 router.post(
     "/me/update",
     authMiddleware,

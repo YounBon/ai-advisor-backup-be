@@ -9,11 +9,11 @@ class AuthService {
         const user = await userModel
             .findOne({ email: userData.email })
             .select("+password_hash");
-        if (!user) throwError("Invalid email or password", 401);
+        if (!user) throwError("Email hoặc mật khẩu không đúng", 401);
 
         const isMatch = await user.comparePassword(userData.password);
-        if (!isMatch) throwError("Invalid email or password", 401);
-        if (user.status !== "ACTIVE") throwError("User is not active", 403);
+        if (!isMatch) throwError("Email hoặc mật khẩu không đúng", 401);
+        if (user.status !== "ACTIVE") throwError("Tài khoản chưa được kích hoạt", 403);
             const loginAt = new Date();
             await userModel.updateOne(
                 { _id: user._id },
@@ -49,16 +49,16 @@ class AuthService {
         try {
             decoded = verifyRefreshToken(rawRefreshToken);
         } catch (error) {
-            throwError("Invalid refresh token", 401);
+            throwError("Phiên đăng nhập không hợp lệ", 401);
         }
 
-        if (decoded.token_type !== "refresh") throwError("Invalid refresh token type", 401);
+        if (decoded.token_type !== "refresh") throwError("Loại token làm mới không hợp lệ", 401);
 
         const user = await userModel.findById(decoded.userId).select("_id role status username email last_login_at token_version");
-        if (!user) throwError("User not found", 401);
-        if (user.status !== "ACTIVE") throwError("User is not active", 403);
+        if (!user) throwError("Không tìm thấy người dùng", 401);
+        if (user.status !== "ACTIVE") throwError("Tài khoản chưa được kích hoạt", 403);
         if (Number(decoded.tokenVersion) !== Number(user.token_version || 0)) {
-            throwError("Refresh token is expired or revoked", 401);
+            throwError("Phiên đăng nhập đã hết hạn hoặc bị thu hồi", 401);
         }
 
             await userModel.updateOne(
@@ -90,22 +90,22 @@ class AuthService {
 
     async logout({ currentUser, refreshToken, allDevices }) {
         const user = await userModel.findById(currentUser.userId).select("_id token_version");
-        if (!user) throwError("User not found", 401);
+        if (!user) throwError("Không tìm thấy người dùng", 401);
 
         if (refreshToken) {
             let decoded;
             try {
                 decoded = verifyRefreshToken(refreshToken);
             } catch (error) {
-                throwError("Invalid refresh token", 401);
+                throwError("Phiên đăng nhập không hợp lệ", 401);
             }
 
-            if (decoded.token_type !== "refresh") throwError("Invalid refresh token type", 401);
+            if (decoded.token_type !== "refresh") throwError("Loại token làm mới không hợp lệ", 401);
             if (String(decoded.userId) !== String(currentUser.userId)) {
-                throwError("Refresh token does not belong to current user", 403);
+                throwError("Token không thuộc tài khoản hiện tại", 403);
             }
             if (Number(decoded.tokenVersion) !== Number(user.token_version || 0)) {
-                throwError("Refresh token is expired or revoked", 401);
+                throwError("Phiên đăng nhập đã hết hạn hoặc bị thu hồi", 401);
             }
         }
 

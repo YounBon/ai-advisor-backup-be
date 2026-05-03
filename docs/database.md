@@ -135,6 +135,9 @@ Note: chỉ 1 term `ACTIVE` tại 1 thời điểm.
 
 ### 2.7 `academic_records`
 
+Collection này lưu **toàn bộ lịch sử cập nhật** dữ liệu học tập của sinh viên theo mô hình append-only.
+Mỗi lần sinh viên nộp dữ liệu mới trong cùng một kỳ sẽ tạo ra một document mới, bản cũ được đánh dấu `is_latest: false`.
+
 ```json
 {
   "_id": "ObjectId",
@@ -150,10 +153,19 @@ Note: chỉ 1 term `ACTIVE` tại 1 thời điểm.
   "stress_level": 4,
   "sentiment_score": 0.65,
   "recorded_at": "ISODate",
+  "is_latest": true,
+  "version": 1,
+  "updated_by": "ObjectId (ref: users)",
   "createdAt": "ISODate",
   "updatedAt": "ISODate"
 }
 ```
+
+**Ghi chú:**
+- `is_latest: true` — bản ghi mới nhất của sinh viên trong kỳ, dùng cho AI/dashboard query.
+- `is_latest: false` — bản ghi lịch sử (audit trail), không bị xóa.
+- `version` — số thứ tự lần cập nhật trong cùng 1 kỳ (bắt đầu từ 1).
+- `updated_by` — ObjectId của user thực hiện cập nhật (sinh viên tự nộp hoặc advisor/admin nhập hộ).
 
 ### 2.8 `risk_predictions`
 
@@ -288,7 +300,7 @@ Note: chỉ 1 term `ACTIVE` tại 1 thời điểm.
 - `terms`: unique `term_code`, unique partial `status=ACTIVE`, index `(start_date, end_date)`.
 - `advisor_classes`: unique `advisor_user_id`, unique `class_code`, index `status`, `department_id`, `major_id`.
 - `class_members`: unique `student_user_id`, unique `(class_id, student_user_id)`, index `(class_id, status)`.
-- `academic_records`: unique `(student_user_id, term_id)`, index `(student_user_id, recorded_at -1)`.
+- `academic_records`: **bỏ** unique `(student_user_id, term_id)` — thay bằng partial unique `(student_user_id, term_id)` where `is_latest=true` (đảm bảo mỗi sinh viên chỉ có 1 bản latest/kỳ), index `(student_user_id, term_id, recorded_at -1)`, index `(student_user_id, term_id, is_latest)`, index `(student_user_id, recorded_at -1)`.
 - `risk_predictions`: unique partial `(student_user_id, term_id, is_latest)` where `is_latest=true`, index `(risk_label, predicted_at -1)`.
 - `alert`: index `(student_user_id, detected_at -1)`, index `(status, severity)`.
 - `recommendations`: index `(student_user_id, createdAt -1)`.

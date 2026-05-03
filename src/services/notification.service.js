@@ -30,6 +30,39 @@ class NotificationService {
         });
     }
 
+    async markAsRead(body, currentUser) {
+        const recipientUserId = currentUser.userId;
+        const { notification_id, mark_all } = body;
+
+        if (mark_all) {
+            await Notification.updateMany(
+                { recipient_user_id: recipientUserId, is_read: false },
+                { $set: { is_read: true, read_at: new Date() } }
+            );
+            return { updated: true, mark_all: true };
+        }
+
+        if (!notification_id) {
+            const err = new Error("notification_id is required");
+            err.statusCode = 422;
+            throw err;
+        }
+
+        const notif = await Notification.findOneAndUpdate(
+            { _id: notification_id, recipient_user_id: recipientUserId },
+            { $set: { is_read: true, read_at: new Date() } },
+            { new: true }
+        );
+
+        if (!notif) {
+            const err = new Error("notification not found");
+            err.statusCode = 404;
+            throw err;
+        }
+
+        return { updated: true, notification_id };
+    }
+
     async listNotifications(body, currentUser) {
         const page = Number(body.page || 1);
         const limit = Number(body.limit || 20);

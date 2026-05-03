@@ -111,7 +111,11 @@ class AcademicService {
     }
 
     async detectAnomalyViaAI({ studentUserId, latestRecord }) {
-        const history = await AcademicRecord.find({ student_user_id: studentUserId })
+        // Lấy lịch sử: mỗi kỳ chỉ lấy bản ghi mới nhất (is_latest=true) để tránh duplicate
+        const history = await AcademicRecord.find({
+            student_user_id: studentUserId,
+            is_latest: true,
+        })
             .sort({ recorded_at: 1, _id: 1 })
             .select("gpa_current attendance_rate sentiment_score stress_level recorded_at term_id");
 
@@ -160,8 +164,8 @@ class AcademicService {
                     typeof data?.model_name === "string"
                         ? data.model_name
                         : typeof data?.meta?.model_name === "string"
-                          ? data.meta.model_name
-                          : "IsolationForest",
+                            ? data.meta.model_name
+                            : "IsolationForest",
                 triggeredFeatures: Array.isArray(data?.triggered_features) ? data.triggered_features : [],
                 zScores: data?.z_scores && typeof data.z_scores === "object" ? data.z_scores : null,
                 featureValues:
@@ -263,15 +267,15 @@ class AcademicService {
             .map((item) => {
                 const featureLabel = featureLabelMap[item.feature] || item.feature;
                 const valueText = formatFeatureValue(item.feature, item.value);
-                
+
                 let direction;
                 let changeText;
-                
+
                 if (isDeltaMode) {
                     // Delta mode: z = current - previous (actual change)
                     const delta = item.z;
                     const absDelta = Math.abs(delta).toFixed(2);
-                    
+
                     if (item.feature === "stress_level") {
                         // Stress: increase = bad
                         direction = delta > 0 ? "tăng" : "giảm";
@@ -282,12 +286,12 @@ class AcademicService {
                     changeText = `thay đổi=${delta > 0 ? '+' : ''}${delta.toFixed(2)}`;
                 } else {
                     // Z-score mode: statistical z-score
-                    const isBadDirection = 
+                    const isBadDirection =
                         item.feature === "stress_level" ? item.z >= 0 : item.z <= 0;
                     direction = isBadDirection ? "tăng đột biến" : "giảm mạnh";
                     changeText = `z=${item.z >= 0 ? '+' : ''}${item.z.toFixed(2)}`;
                 }
-                
+
                 return `${featureLabel} ${direction} (${changeText}, giá trị=${valueText})`;
             });
 
@@ -297,7 +301,7 @@ class AcademicService {
             recipient_user_id: advisorId,
             alert_id: alert._id,
             title: "Cảnh báo dấu hiệu bất thường",
-            content: `Sinh viên ${studentName} có dấu hiệu bất thường (${anomalyResult?.anomalyType || "Study anomaly"}).${explainText}`, 
+            content: `Sinh viên ${studentName} có dấu hiệu bất thường (${anomalyResult?.anomalyType || "Study anomaly"}).${explainText}`,
             sent_at: new Date(),
         });
     }
@@ -488,12 +492,55 @@ class AcademicService {
         });
     }
 
+    async notifyStudentForAlert({ alert, studentUserId, termName }) {
+        if (!alert?._id) return;
+
+        const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const duplicate = await Notification.findOne({
+            recipient_user_id: studentUserId,
+            alert_id: alert._id,
+            sent_at: { $gte: dedupeSince },
+        }).select("_id");
+        if (duplicate) return;
+
+        const termLabel = termName ? ` trong ${termName}` : "";
+        await Notification.create({
+            recipient_user_id: studentUserId,
+            alert_id: alert._id,
+            title: "Cảnh báo nguy cơ học tập",
+            content: `Hệ thống phát hiện bạn có nguy cơ cao về kết quả học tập${termLabel}. Hãy liên hệ cố vấn học tập để được hỗ trợ sớm nhất.`,
+            sent_at: new Date(),
+        });
+    }
+
+    async notifyStudentForAnomalyAlert({ alert, studentUserId, termName }) {
+        if (!alert?._id) return;
+
+        const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
+        const duplicate = await Notification.findOne({
+            recipient_user_id: studentUserId,
+            alert_id: alert._id,
+            sent_at: { $gte: dedupeSince },
+        }).select("_id");
+        if (duplicate) return;
+
+        const termLabel = termName ? ` trong ${termName}` : "";
+        await Notification.create({
+            recipient_user_id: studentUserId,
+            alert_id: alert._id,
+            title: "Phát hiện dấu hiệu bất thường",
+            content: `Hệ thống phát hiện một số chỉ số học tập của bạn có biến động bất thường${termLabel}. Hãy liên hệ cố vấn học tập nếu bạn đang gặp khó khăn.`,
+            sent_at: new Date(),
+        });
+    }
+
     async submitAcademic(data, studentUserId) {
 
         if (!studentUserId) throwError("student_user_id is required", 422);
         if (!data.term_id) throwError("term_id is required", 422);
-        const term = await Term.findById(data.term_id).select("_id");
+        const term = await Term.findById(data.term_id).select("_id term_name term_code");
         if (!term) throwError("term_id is invalid", 422);
+        const termName = term.term_name || term.term_code || null;
 
         const sentimentAgg = await Feedback.aggregate([
             {
@@ -525,10 +572,12 @@ class AcademicService {
         ]);
         const computedSentimentScore = sentimentAgg.length ? sentimentAgg[0].avg_feedback_score : null;
 
+        // Lấy bản ghi mới nhất (is_latest=true) của sinh viên trong kỳ này
         const latestRecord = await AcademicRecord.findOne({
             student_user_id: studentUserId,
             term_id: data.term_id,
-        }).sort({ recorded_at: -1 });
+            is_latest: true,
+        });
 
         const recordedAt = data.recorded_at ? new Date(data.recorded_at) : new Date();
         if (Number.isNaN(recordedAt.getTime())) {
@@ -556,6 +605,18 @@ class AcademicService {
             throwError("gpa_prev_sem cannot be changed within the same term", 422);
         }
 
+        // Tính version mới: lấy version cao nhất trong kỳ + 1
+        const latestVersion = latestRecord?.version ?? 0;
+        const nextVersion = latestVersion + 1;
+
+        // Unset is_latest cho tất cả bản ghi cũ của sinh viên trong kỳ này
+        if (latestRecord) {
+            await AcademicRecord.updateMany(
+                { student_user_id: studentUserId, term_id: data.term_id, is_latest: true },
+                { $set: { is_latest: false } }
+            );
+        }
+
         const payload = {
             student_user_id: studentUserId,
             term_id: data.term_id,
@@ -574,6 +635,9 @@ class AcademicService {
             stress_level: data.stress_level !== undefined ? data.stress_level : latestRecord?.stress_level,
             sentiment_score: computedSentimentScore,
             recorded_at: recordedAt,
+            is_latest: true,
+            version: nextVersion,
+            updated_by: studentUserId,
         };
 
         const updated = await AcademicRecord.create(payload);
@@ -622,10 +686,17 @@ class AcademicService {
                 riskScore: risk.riskScore,
             });
             if (riskAlert) {
-                await this.notifyAdvisorForAlert({
-                    alert: riskAlert,
-                    studentUserId,
-                });
+                await Promise.all([
+                    this.notifyAdvisorForAlert({
+                        alert: riskAlert,
+                        studentUserId,
+                    }),
+                    this.notifyStudentForAlert({
+                        alert: riskAlert,
+                        studentUserId,
+                        termName,
+                    }),
+                ]);
             }
             await this.replaceRecommendationsForRisk({
                 studentUserId,
@@ -654,11 +725,18 @@ class AcademicService {
                 });
 
                 if (anomalyAlert) {
-                    await this.notifyAdvisorForAnomalyAlert({
-                        alert: anomalyAlert,
-                        studentUserId,
-                        anomalyResult,
-                    });
+                    await Promise.all([
+                        this.notifyAdvisorForAnomalyAlert({
+                            alert: anomalyAlert,
+                            studentUserId,
+                            anomalyResult,
+                        }),
+                        this.notifyStudentForAnomalyAlert({
+                            alert: anomalyAlert,
+                            studentUserId,
+                            termName,
+                        }),
+                    ]);
                 }
             }
         } catch (error) {
