@@ -29,16 +29,17 @@ sequenceDiagram
     participant API as Backend API
     participant DB as MongoDB
 
-    A->>API: POST /api/dashboard/advisor (JWT ADVISOR)
+    A->>API: POST /api/dashboard/advisor (JWT ADVISOR, body: { class_id? })
     API->>API: Lấy advisor_user_id từ token
-    API->>DB: Tìm advisor_classes theo advisor_user_id
+    note over API: Nếu class_id truyền → dùng lớp đó (verify thuộc advisor)<br/>Nếu không → lấy lớp ACTIVE đầu tiên (sort createdAt asc)
+    API->>DB: Tìm advisor_class theo điều kiện trên
     API->>DB: Tìm class_members ACTIVE theo class_id
     API->>DB: Query users (student profile)
     API->>DB: Query latest risk_predictions theo student
     API->>DB: Query alert OPEN type in [RISK, SENTIMENT]
     API->>DB: Query notifications theo recipient_user_id + populate alert_id
     DB-->>API: student_table + alert_cards + risk_alerts + sentiment_alerts + recent_alerts
-    API-->>A: 200 { student_table, alert_cards, risk_alerts, sentiment_alerts, recent_alerts, pagination }
+    API-->>A: 200 { class_info, student_table, alert_cards, risk_alerts, sentiment_alerts, recent_alerts, pagination }
 ```
 
 ## 4) Payload chính
@@ -53,6 +54,7 @@ Ghi chú:
 - `sentiment_trend`: dữ liệu aggregate theo tháng và `sentiment_label`.
 
 ### 4.2 Advisor dashboard
+- `class_info` — thông tin lớp đang xem (`_id`, `class_code`, `class_name`, `cohort_year`, `status`)
 - `student_table[]`
   - `student_user_id`, `student_code`, `full_name`, `email`
   - `risk_score`, `risk_label`
@@ -62,9 +64,17 @@ Ghi chú:
 - `alert_cards`
   - `risk_open`
   - `sentiment_open`
+  - `anomaly_open`
 - `risk_alerts` (top 20, từ `alert` OPEN)
 - `sentiment_alerts` (top 20, từ `alert` OPEN)
+- `anomaly_alerts` (top 20, từ `alert` OPEN)
 - `recent_alerts` (top 20, lọc theo `alert_id.alert_type` trong `notifications`)
+- `alert_history[]` — lịch sử cảnh báo theo kì học (toàn bộ SV lớp, không phân trang)
+  - `term_id`, `term_code`, `term_name`, `start_date`
+  - `risk_count` — số SV distinct có ít nhất 1 alert RISK trong kì
+  - `sentiment_count` — số SV distinct có ít nhất 1 alert SENTIMENT trong kì
+  - `anomaly_count` — số SV distinct có ít nhất 1 alert ANOMALY trong kì
+  - `high_severity_count` — số SV distinct có ít nhất 1 alert severity=HIGH (bất kỳ loại) trong kì
 - `pagination`
 
 ## 5) Rule quyền truy cập

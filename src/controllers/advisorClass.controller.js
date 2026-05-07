@@ -12,8 +12,8 @@ class AdvisorClassController {
 
     async getMyClass(req, res, next) {
         try {
-            const result = await advisorClassService.getMyClass(req.user, req.body);
-            return res.status(200).json({ message: "Get advisor class successfully", data: result });
+            const result = await advisorClassService.getMyClasses(req.user, req.body);
+            return res.status(200).json({ message: "Get advisor classes successfully", data: result });
         } catch (error) {
             next(error);
         }
@@ -21,4 +21,3 @@ class AdvisorClassController {
 }
 
 module.exports = new AdvisorClassController();
-

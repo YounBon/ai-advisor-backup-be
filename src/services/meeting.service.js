@@ -78,31 +78,121 @@ class MeetingService {
         const limit = Number(body.limit || 20);
         const skip = (page - 1) * limit;
 
-        const filter = { advisor_user_id: advisorUserId };
-        const [items, total] = await Promise.all([
-            Meeting.find(filter)
-                .sort({ meeting_time: -1 })
-                .skip(skip)
-                .limit(limit)
-                .populate("class_id", "class_code class_name")
-                .populate(
-                    "student_user_ids",
-                    "username email profile.full_name student_info.student_code"
-                )
-                .select(
-                    "_id class_id student_user_ids advisor_user_id term_id meeting_time meeting_end_time notes_summary summary_model file createdAt"
-                ),
-            Meeting.countDocuments(filter),
+        const studentName = typeof body.student_name === "string" ? body.student_name.trim() : "";
+        const dateFrom = body.date_from ? new Date(body.date_from) : null;
+        const dateTo = body.date_to ? new Date(body.date_to) : null;
+        const statusFilter = body.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE";
+
+        // If no search filters → use simple query (fast path)
+        if (!studentName && !dateFrom && !dateTo) {
+            const filter = { advisor_user_id: advisorUserId, status: statusFilter };
+            const [items, total] = await Promise.all([
+                Meeting.find(filter)
+                    .sort({ meeting_time: -1 })
+                    .skip(skip)
+                    .limit(limit)
+                    .populate("class_id", "class_code class_name")
+                    .populate("student_user_ids", "username email profile.full_name student_info.student_code")
+                    .select("_id class_id student_user_ids advisor_user_id term_id meeting_time meeting_end_time notes_raw notes_summary summary_model file createdAt"),
+                Meeting.countDocuments(filter),
+            ]);
+            return {
+                items: items.map((item) => this.normalizeMeetingFile(item)),
+                pagination: { page, limit, total, total_pages: Math.ceil(total / limit) || 1 },
+            };
+        }
+
+        // Aggregation pipeline for search
+        const mongoose = require("mongoose");
+        const advisorObjId = new mongoose.Types.ObjectId(String(advisorUserId));
+
+        const matchStage = { advisor_user_id: advisorObjId, status: statusFilter };
+        if (dateFrom || dateTo) {
+            matchStage.meeting_time = {};
+            if (dateFrom) matchStage.meeting_time.$gte = dateFrom;
+            if (dateTo) {
+                // include the full day of dateTo
+                const endOfDay = new Date(dateTo);
+                endOfDay.setHours(23, 59, 59, 999);
+                matchStage.meeting_time.$lte = endOfDay;
+            }
+        }
+
+        const pipeline = [
+            { $match: matchStage },
+            {
+                $lookup: {
+                    from: "users",
+                    localField: "student_user_ids",
+                    foreignField: "_id",
+                    as: "_students",
+                    pipeline: [
+                        {
+                            $project: {
+                                _id: 1,
+                                username: 1,
+                                email: 1,
+                                "profile.full_name": 1,
+                                "student_info.student_code": 1,
+                            },
+                        },
+                    ],
+                },
+            },
+        ];
+
+        if (studentName) {
+            const regex = new RegExp(studentName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+            pipeline.push({
+                $match: {
+                    $or: [
+                        { "_students.profile.full_name": regex },
+                        { "_students.username": regex },
+                        { "_students.email": regex },
+                        { "_students.student_info.student_code": regex },
+                    ],
+                },
+            });
+        }
+
+        pipeline.push({ $sort: { meeting_time: -1 } });
+
+        // Count total before pagination
+        const countPipeline = [...pipeline, { $count: "total" }];
+        const [countResult, rawItems] = await Promise.all([
+            Meeting.aggregate(countPipeline),
+            Meeting.aggregate([
+                ...pipeline,
+                { $skip: skip },
+                { $limit: limit },
+                {
+                    $lookup: {
+                        from: "advisor_classes",
+                        localField: "class_id",
+                        foreignField: "_id",
+                        as: "_class",
+                        pipeline: [{ $project: { class_code: 1, class_name: 1 } }],
+                    },
+                },
+                {
+                    $addFields: {
+                        class_id: { $arrayElemAt: ["$_class", 0] },
+                        student_user_ids: "$_students",
+                    },
+                },
+                {
+                    $project: {
+                        _class: 0,
+                        _students: 0,
+                    },
+                },
+            ]),
         ]);
 
+        const total = countResult[0]?.total ?? 0;
         return {
-            items: items.map((item) => this.normalizeMeetingFile(item)),
-            pagination: {
-                page,
-                limit,
-                total,
-                total_pages: Math.ceil(total / limit) || 1,
-            },
+            items: rawItems.map((item) => this.normalizeMeetingFile(item)),
+            pagination: { page, limit, total, total_pages: Math.ceil(total / limit) || 1 },
         };
     }
 
@@ -232,6 +322,74 @@ class MeetingService {
             file_size: fileSizeMb,
             format: resolvedFormat,
         };
+    }
+
+    async updateNotes(meetingId, data, advisorUserId) {
+        if (!advisorUserId) throwError("advisor_user_id is required", 422);
+        if (!meetingId) throwError("meeting_id is required", 422);
+
+        const meeting = await Meeting.findById(meetingId).select("_id advisor_user_id");
+        if (!meeting) throwError("meeting not found", 404);
+        if (String(meeting.advisor_user_id) !== String(advisorUserId)) {
+            throwError("forbidden: you are not the advisor of this meeting", 403);
+        }
+
+        const updateFields = { notes_raw: data.notes_raw };
+        if (data.notes_summary !== undefined) updateFields.notes_summary = data.notes_summary;
+        if (data.summary_model !== undefined) updateFields.summary_model = data.summary_model;
+
+        const updated = await Meeting.findByIdAndUpdate(
+            meetingId,
+            { $set: updateFields },
+            { new: true }
+        )
+            .populate("class_id", "class_code class_name")
+            .populate("student_user_ids", "username email profile.full_name student_info.student_code")
+            .select("_id class_id student_user_ids advisor_user_id term_id meeting_time meeting_end_time notes_raw notes_summary summary_model file createdAt updatedAt");
+
+        return this.normalizeMeetingFile(updated);
+    }
+
+    async archiveMeeting(meetingId, advisorUserId) {
+        if (!advisorUserId) throwError("advisor_user_id is required", 422);
+        const meeting = await Meeting.findById(meetingId).select("_id advisor_user_id status");
+        if (!meeting) throwError("meeting not found", 404);
+        if (String(meeting.advisor_user_id) !== String(advisorUserId)) {
+            throwError("forbidden: you are not the advisor of this meeting", 403);
+        }
+        if (meeting.status === "ARCHIVED") throwError("meeting is already archived", 409);
+        meeting.status = "ARCHIVED";
+        await meeting.save();
+        return { _id: String(meeting._id), status: meeting.status };
+    }
+
+    async unarchiveMeeting(meetingId, advisorUserId) {
+        if (!advisorUserId) throwError("advisor_user_id is required", 422);
+        const meeting = await Meeting.findById(meetingId).select("_id advisor_user_id status");
+        if (!meeting) throwError("meeting not found", 404);
+        if (String(meeting.advisor_user_id) !== String(advisorUserId)) {
+            throwError("forbidden: you are not the advisor of this meeting", 403);
+        }
+        if (meeting.status === "ACTIVE") throwError("meeting is already active", 409);
+        meeting.status = "ACTIVE";
+        await meeting.save();
+        return { _id: String(meeting._id), status: meeting.status };
+    }
+
+    async deleteMeeting(meetingId, advisorUserId) {
+        if (!advisorUserId) throwError("advisor_user_id is required", 422);
+        const meeting = await Meeting.findById(meetingId).select("_id advisor_user_id");
+        if (!meeting) throwError("meeting not found", 404);
+        if (String(meeting.advisor_user_id) !== String(advisorUserId)) {
+            throwError("forbidden: you are not the advisor of this meeting", 403);
+        }
+        // Block deletion if any feedback exists — preserve data integrity
+        const feedbackCount = await Feedback.countDocuments({ meeting_id: meetingId });
+        if (feedbackCount > 0) {
+            throwError(`cannot delete meeting: ${feedbackCount} feedback record(s) exist. Archive it instead.`, 409);
+        }
+        await Meeting.findByIdAndDelete(meetingId);
+        return { _id: String(meetingId), deleted: true };
     }
 
     async createMeeting(data, advisorUserId, meetingFile) {

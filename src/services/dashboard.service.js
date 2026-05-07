@@ -7,6 +7,7 @@ const Alert = require("../models/alert.model");
 const AdvisorClass = require("../models/advisorClass.model");
 const ClassMember = require("../models/classMember.model");
 const User = require("../models/user.model");
+const Term = require("../models/term.model");
 const throwError = require("../utils/throwError");
 
 class DashboardService {
@@ -62,14 +63,27 @@ class DashboardService {
         const limit = Number(body.limit || 20);
         const skip = (page - 1) * limit;
 
-        const advisorClass = await AdvisorClass.findOne({
-            advisor_user_id: advisorUserId,
-            status: "ACTIVE",
-        }).select("_id");
+        // Nếu client truyền class_id thì dùng lớp đó, ngược lại lấy lớp ACTIVE đầu tiên của cố vấn
+        let advisorClass;
+        if (body.class_id) {
+            advisorClass = await AdvisorClass.findOne({
+                _id: body.class_id,
+                advisor_user_id: advisorUserId,
+            }).select("_id class_code class_name cohort_year status");
+            if (!advisorClass) throwError("class not found or does not belong to this advisor", 404);
+        } else {
+            advisorClass = await AdvisorClass.findOne({
+                advisor_user_id: advisorUserId,
+                status: "ACTIVE",
+            })
+                .sort({ createdAt: 1 })
+                .select("_id class_code class_name cohort_year status");
+        }
 
         if (!advisorClass) {
             return {
                 advisor_user_id: advisorUserId,
+                class_info: null,
                 student_table: [],
                 recent_alerts: [],
                 pagination: {
@@ -80,6 +94,13 @@ class DashboardService {
                 },
             };
         }
+
+        // ── Lấy toàn bộ studentIds của lớp (không phân trang) để tính lịch sử biểu đồ
+        const allMemberRows = await ClassMember.find({
+            class_id: advisorClass._id,
+            status: "ACTIVE",
+        }).select("student_user_id");
+        const allStudentIds = allMemberRows.map((r) => r.student_user_id);
 
         const [memberRows, total] = await Promise.all([
             ClassMember.find({ class_id: advisorClass._id, status: "ACTIVE" })
@@ -95,7 +116,7 @@ class DashboardService {
             .sort({ createdAt: -1 });
 
         const studentIds = students.map((s) => s._id);
-        const [riskRows, openAlerts, recentAlertsRaw] = await Promise.all([
+        const [riskRows, openAlerts, recentAlertsRaw, alertHistoryRaw] = await Promise.all([
             RiskPrediction.aggregate([
                 {
                     $match: {
@@ -123,6 +144,8 @@ class DashboardService {
                 .populate("alert_id", "alert_type severity status detected_at student_user_id")
                 .sort({ sent_at: -1 })
                 .limit(50),
+            // ── Lịch sử cảnh báo theo kì: dùng allStudentIds (toàn lớp, không phân trang)
+            this._buildAlertHistoryByTerm(allStudentIds),
         ]);
 
         const recentAlerts = recentAlertsRaw
@@ -178,6 +201,13 @@ class DashboardService {
 
         return {
             advisor_user_id: advisorUserId,
+            class_info: {
+                _id: advisorClass._id,
+                class_code: advisorClass.class_code,
+                class_name: advisorClass.class_name,
+                cohort_year: advisorClass.cohort_year,
+                status: advisorClass.status,
+            },
             student_table,
             recent_alerts: recentAlerts,
             alert_cards: {
@@ -188,6 +218,8 @@ class DashboardService {
             risk_alerts: riskAlerts.slice(0, 20),
             sentiment_alerts: sentimentAlerts.slice(0, 20),
             anomaly_alerts: anomalyAlerts.slice(0, 20),
+            // ── Dữ liệu lịch sử cho 4 biểu đồ cột theo kì
+            alert_history: alertHistoryRaw,
             pagination: {
                 page,
                 limit,
@@ -197,75 +229,277 @@ class DashboardService {
         };
     }
 
+    /**
+     * Tổng hợp lịch sử cảnh báo theo kì học cho 4 biểu đồ cột:
+     *   1. Số SV có cảnh báo RISK qua các kì
+     *   2. Số SV có cảnh báo SENTIMENT qua các kì
+     *   3. Số SV có cảnh báo ANOMALY qua các kì
+     *   4. Số SV có severity HIGH (bất kỳ loại) qua các kì
+     *
+     * Mỗi phần tử trả về:
+     *   { term_id, term_name, term_code, start_date, risk_count, sentiment_count, anomaly_count, high_severity_count }
+     *
+     * @param {ObjectId[]} studentIds - Toàn bộ SV của lớp (không phân trang)
+     * @returns {Promise<Array>}
+     */
+    async _buildAlertHistoryByTerm(studentIds) {
+        if (!studentIds || studentIds.length === 0) return [];
+
+        // Aggregate: nhóm theo (term_id, alert_type, severity) → đếm distinct student
+        const raw = await Alert.aggregate([
+            {
+                $match: {
+                    student_user_id: { $in: studentIds },
+                    alert_type: { $in: ["RISK", "SENTIMENT", "ANOMALY"] },
+                },
+            },
+            // Loại bỏ duplicate: mỗi (student, term, alert_type) chỉ tính 1 lần
+            {
+                $group: {
+                    _id: {
+                        term_id: "$term_id",
+                        alert_type: "$alert_type",
+                        student_user_id: "$student_user_id",
+                        // Ghi nhận severity cao nhất của SV trong kì đó (HIGH > MEDIUM > LOW)
+                        has_high: {
+                            $cond: [{ $eq: ["$severity", "HIGH"] }, true, false],
+                        },
+                    },
+                },
+            },
+            // Nhóm lại theo (term_id, alert_type) → đếm số SV distinct
+            {
+                $group: {
+                    _id: {
+                        term_id: "$_id.term_id",
+                        alert_type: "$_id.alert_type",
+                    },
+                    student_count: { $sum: 1 },
+                },
+            },
+            // Pivot alert_type thành các field riêng theo từng kì
+            {
+                $group: {
+                    _id: "$_id.term_id",
+                    risk_count: {
+                        $sum: {
+                            $cond: [{ $eq: ["$_id.alert_type", "RISK"] }, "$student_count", 0],
+                        },
+                    },
+                    sentiment_count: {
+                        $sum: {
+                            $cond: [{ $eq: ["$_id.alert_type", "SENTIMENT"] }, "$student_count", 0],
+                        },
+                    },
+                    anomaly_count: {
+                        $sum: {
+                            $cond: [{ $eq: ["$_id.alert_type", "ANOMALY"] }, "$student_count", 0],
+                        },
+                    },
+                },
+            },
+            { $sort: { _id: 1 } },
+        ]);
+
+        // Aggregate riêng cho high_severity_count: đếm distinct SV có ít nhất 1 alert HIGH trong kì
+        const highRaw = await Alert.aggregate([
+            {
+                $match: {
+                    student_user_id: { $in: studentIds },
+                    severity: "HIGH",
+                },
+            },
+            // Distinct (term_id, student_user_id)
+            {
+                $group: {
+                    _id: {
+                        term_id: "$term_id",
+                        student_user_id: "$student_user_id",
+                    },
+                },
+            },
+            // Đếm số SV distinct theo kì
+            {
+                $group: {
+                    _id: "$_id.term_id",
+                    high_severity_count: { $sum: 1 },
+                },
+            },
+        ]);
+
+        const highMap = new Map(highRaw.map((r) => [String(r._id), r.high_severity_count]));
+
+        // Lấy thông tin kì học để có term_name, term_code, start_date làm label
+        const termIds = raw.map((r) => r._id).filter(Boolean);
+        const terms = await Term.find({ _id: { $in: termIds } })
+            .select("_id term_code term_name start_date")
+            .sort({ start_date: 1 })
+            .lean();
+        const termMap = new Map(terms.map((t) => [String(t._id), t]));
+
+        // Ghép dữ liệu và sort theo start_date của kì
+        const result = raw
+            .map((r) => {
+                const termIdStr = String(r._id);
+                const term = termMap.get(termIdStr);
+                return {
+                    term_id: r._id,
+                    term_code: term?.term_code ?? termIdStr,
+                    term_name: term?.term_name ?? termIdStr,
+                    start_date: term?.start_date ?? null,
+                    risk_count: r.risk_count,
+                    sentiment_count: r.sentiment_count,
+                    anomaly_count: r.anomaly_count,
+                    high_severity_count: highMap.get(termIdStr) ?? 0,
+                };
+            })
+            .sort((a, b) => {
+                if (!a.start_date) return 1;
+                if (!b.start_date) return -1;
+                return new Date(a.start_date) - new Date(b.start_date);
+            });
+
+        return result;
+    }
+
     async getFacultyDashboard(body = {}) {
         const riskThreshold = Number(body.risk_threshold ?? 0.7);
         const studentFilter = { role: "STUDENT" };
-        if (body.department_id) studentFilter["org.department_id"] = body.department_id;
+        if (body.department_id) studentFilter["org.department_id"] = new mongoose.Types.ObjectId(body.department_id);
 
-        const students = await User.find(studentFilter).select("_id");
+        const students = await User.find(studentFilter).select("_id profile.full_name student_info.student_code email");
         const studentIds = students.map((s) => s._id);
+        const studentMap = new Map(students.map((s) => [String(s._id), s]));
 
-        const [riskDistribution, riskKpi, anomalySummary] = await Promise.all([
+        // Lấy học kỳ active
+        const activeTerm = await Term.findOne({ status: "ACTIVE" }).select("_id term_code term_name");
+
+        const [riskDistribution, riskKpi, anomalySummary, feedbackSentiment, alertHistoryRaw, topRiskRaw] = await Promise.all([
+            // Phân bố nhãn rủi ro — kỳ active
             RiskPrediction.aggregate([
                 {
                     $match: {
                         student_user_id: { $in: studentIds },
-                        is_latest: true,
+                        ...(activeTerm ? { term_id: activeTerm._id } : { is_latest: true }),
                     },
                 },
-                {
-                    $group: {
-                        _id: "$risk_label",
-                        count: { $sum: 1 },
-                    },
-                },
+                // Mỗi sinh viên chỉ tính 1 lần (điểm cao nhất trong kỳ)
+                { $group: { _id: "$student_user_id", risk_label: { $first: "$risk_label" }, risk_score: { $max: "$risk_score" } } },
+                { $group: { _id: "$risk_label", count: { $sum: 1 } } },
             ]),
+            // KPI rủi ro — kỳ active
             RiskPrediction.aggregate([
                 {
                     $match: {
                         student_user_id: { $in: studentIds },
-                        is_latest: true,
+                        ...(activeTerm ? { term_id: activeTerm._id } : { is_latest: true }),
                     },
                 },
+                // Deduplicate: mỗi sinh viên lấy điểm cao nhất trong kỳ
+                { $group: { _id: "$student_user_id", risk_score: { $max: "$risk_score" } } },
                 {
                     $group: {
                         _id: null,
                         avg_risk_score: { $avg: "$risk_score" },
                         high_risk_students: {
-                            $sum: {
-                                $cond: [{ $gte: ["$risk_score", riskThreshold] }, 1, 0],
-                            },
+                            $sum: { $cond: [{ $gte: ["$risk_score", riskThreshold] }, 1, 0] },
                         },
                         total_predictions: { $sum: 1 },
                     },
                 },
             ]),
-            Alert.aggregate([
-                {
-                    $match: {
-                        student_user_id: { $in: studentIds },
-                    },
-                },
-                {
-                    $group: {
-                        _id: {
-                            alert_type: "$alert_type",
-                            severity: "$severity",
+            // Tổng hợp cảnh báo theo loại & mức độ — kỳ active
+            activeTerm
+                ? Alert.aggregate([
+                    { $match: { student_user_id: { $in: studentIds }, term_id: activeTerm._id } },
+                    {
+                        $group: {
+                            _id: { alert_type: "$alert_type", severity: "$severity" },
+                            count: { $sum: 1 },
                         },
-                        count: { $sum: 1 },
                     },
-                },
-                {
-                    $sort: {
-                        "_id.alert_type": 1,
-                        "_id.severity": 1,
+                    { $sort: { "_id.alert_type": 1, "_id.severity": 1 } },
+                ])
+                : Alert.aggregate([
+                    { $match: { student_user_id: { $in: studentIds } } },
+                    {
+                        $group: {
+                            _id: { alert_type: "$alert_type", severity: "$severity" },
+                            count: { $sum: 1 },
+                        },
                     },
-                },
-            ]),
+                    { $sort: { "_id.alert_type": 1, "_id.severity": 1 } },
+                ]),
+            // Phân bố cảm xúc phản hồi trong kỳ active
+            activeTerm
+                ? Feedback.aggregate([
+                    {
+                        $lookup: {
+                            from: "meetings",
+                            localField: "meeting_id",
+                            foreignField: "_id",
+                            as: "meeting",
+                        },
+                    },
+                    { $unwind: { path: "$meeting", preserveNullAndEmptyArrays: false } },
+                    {
+                        $match: {
+                            student_user_id: { $in: studentIds },
+                            "meeting.term_id": activeTerm._id,
+                        },
+                    },
+                    {
+                        $group: {
+                            _id: "$sentiment_label",
+                            count: { $sum: 1 },
+                        },
+                    },
+                ])
+                : Promise.resolve([]),
+            // Lịch sử cảnh báo HIGH qua các kỳ
+            this._buildAlertHistoryByTerm(studentIds),
+            // Top 10 sinh viên rủi ro cao nhất — kỳ active, mỗi sinh viên chỉ 1 lần
+            activeTerm
+                ? RiskPrediction.aggregate([
+                    {
+                        $match: {
+                            student_user_id: { $in: studentIds },
+                            term_id: activeTerm._id,
+                        },
+                    },
+                    // Group theo student, lấy risk_score cao nhất trong kỳ active
+                    {
+                        $group: {
+                            _id: "$student_user_id",
+                            risk_score: { $max: "$risk_score" },
+                            risk_label: { $first: "$risk_label" },
+                        },
+                    },
+                    { $sort: { risk_score: -1 } },
+                    { $limit: 10 },
+                ])
+                : Promise.resolve([]),
         ]);
+
+        // Gắn thông tin sinh viên vào top risk
+        const topRiskStudents = (topRiskRaw || []).map((r) => {
+            const studentId = String(r._id ?? r.student_user_id)
+            const s = studentMap.get(studentId);
+            return {
+                student_user_id: r._id ?? r.student_user_id,
+                full_name: s?.profile?.full_name || null,
+                student_code: s?.student_info?.student_code || null,
+                email: s?.email || null,
+                risk_score: r.risk_score,
+                risk_label: r.risk_label,
+            };
+        });
 
         return {
             department_id: body.department_id || null,
+            active_term: activeTerm
+                ? { _id: activeTerm._id, term_code: activeTerm.term_code, term_name: activeTerm.term_name }
+                : null,
             kpi: {
                 total_students: studentIds.length,
                 avg_risk_score: riskKpi[0]?.avg_risk_score ?? 0,
@@ -274,6 +508,9 @@ class DashboardService {
             },
             risk_distribution: riskDistribution,
             anomaly_summary: anomalySummary,
+            feedback_sentiment: feedbackSentiment,
+            alert_history_by_term: alertHistoryRaw,
+            top_risk_students: topRiskStudents,
         };
     }
 }

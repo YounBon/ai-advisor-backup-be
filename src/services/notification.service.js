@@ -87,8 +87,11 @@ class NotificationService {
             Notification.find(filter)
                 .populate({
                     path: "alert_id",
-                    select: "alert_type source_ai severity status detected_at term_id",
-                    populate: { path: "term_id", select: "term_code term_name" },
+                    select: "alert_type source_ai severity status detected_at term_id student_user_id",
+                    populate: [
+                        { path: "term_id", select: "term_code term_name" },
+                        { path: "student_user_id", select: "profile.full_name student_info.student_code" },
+                    ],
                 })
                 .sort({ sent_at: -1 })
                 .skip(skip)
@@ -96,8 +99,46 @@ class NotificationService {
             Notification.countDocuments(filter),
         ]);
 
+        // Lấy thông tin lớp cho từng sinh viên trong alert
+        const studentIds = items
+            .map(n => {
+                const a = n.alert_id;
+                return a && typeof a === "object" ? a.student_user_id?._id || a.student_user_id : null;
+            })
+            .filter(Boolean);
+
+        const uniqueStudentIds = [...new Set(studentIds.map(String))];
+        const classMemberRows = uniqueStudentIds.length
+            ? await ClassMember.find({ student_user_id: { $in: uniqueStudentIds } })
+                .select("student_user_id class_id")
+                .populate("class_id", "class_code class_name")
+                .lean()
+            : [];
+
+        const classDisplayByStudent = new Map(
+            classMemberRows.map(r => {
+                const c = r.class_id;
+                const label = c && typeof c === "object"
+                    ? [c.class_code, c.class_name].filter(Boolean).join(" — ")
+                    : null;
+                return [String(r.student_user_id), label];
+            })
+        );
+
+        const normalized = items.map(n => {
+            const obj = n.toObject ? n.toObject() : n;
+            const a = obj.alert_id;
+            const studentId = a && typeof a === "object"
+                ? String(a.student_user_id?._id || a.student_user_id || "")
+                : "";
+            return {
+                ...obj,
+                class_display: classDisplayByStudent.get(studentId) ?? null,
+            };
+        });
+
         return {
-            items,
+            items: normalized,
             pagination: {
                 page,
                 limit,

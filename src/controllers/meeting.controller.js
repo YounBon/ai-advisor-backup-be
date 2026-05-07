@@ -38,6 +38,43 @@ class MeetingController {
             next(error);
         }
     }
+
+    async updateNotes(req, res, next) {
+        try {
+            const advisorUserId = req.user?.userId;
+            const result = await meetingService.updateNotes(req.params.id, req.body, advisorUserId);
+            return res.status(200).json({ message: "Update meeting notes successfully", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async archiveMeeting(req, res, next) {
+        try {
+            const result = await meetingService.archiveMeeting(req.params.id, req.user?.userId);
+            return res.status(200).json({ message: "Meeting archived successfully", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async unarchiveMeeting(req, res, next) {
+        try {
+            const result = await meetingService.unarchiveMeeting(req.params.id, req.user?.userId);
+            return res.status(200).json({ message: "Meeting unarchived successfully", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async deleteMeeting(req, res, next) {
+        try {
+            const result = await meetingService.deleteMeeting(req.params.id, req.user?.userId);
+            return res.status(200).json({ message: "Meeting deleted successfully", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 module.exports = new MeetingController();

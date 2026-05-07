@@ -15,6 +15,7 @@ class DashboardValidator {
 
     advisorDashboardValidator = [
         body("advisor_user_id").optional().isMongoId().withMessage("invalid advisor_user_id"),
+        body("class_id").optional().isMongoId().withMessage("invalid class_id"),
         body("page").optional().isInt({ min: 1 }).withMessage("page must be an integer >= 1"),
         body("limit")
             .optional()

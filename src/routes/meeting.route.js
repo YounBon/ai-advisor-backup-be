@@ -30,7 +30,7 @@ router.post(
     "/advisor/list",
     authMiddleware,
     authorizeRoles("ADVISOR"),
-    meetingValidator.listMyMeetingsValidator,
+    meetingValidator.listAdvisorMeetingsValidator,
     validate,
     meetingController.listAdvisorMeetings
 );
@@ -43,6 +43,42 @@ router.post(
     meetingValidator.createMeetingValidator,
     validate,
     meetingController.createMeeting
+);
+
+router.patch(
+    "/:id/notes",
+    authMiddleware,
+    authorizeRoles("ADVISOR"),
+    meetingValidator.updateNotesValidator,
+    validate,
+    meetingController.updateNotes
+);
+
+router.patch(
+    "/:id/archive",
+    authMiddleware,
+    authorizeRoles("ADVISOR"),
+    meetingValidator.meetingIdValidator,
+    validate,
+    meetingController.archiveMeeting
+);
+
+router.patch(
+    "/:id/unarchive",
+    authMiddleware,
+    authorizeRoles("ADVISOR"),
+    meetingValidator.meetingIdValidator,
+    validate,
+    meetingController.unarchiveMeeting
+);
+
+router.delete(
+    "/:id",
+    authMiddleware,
+    authorizeRoles("ADVISOR"),
+    meetingValidator.meetingIdValidator,
+    validate,
+    meetingController.deleteMeeting
 );
 
 module.exports = router;

@@ -74,9 +74,24 @@ class ClassMemberService {
     async listMembers(body, currentUser) {
         let classId = body.class_id;
         if (currentUser.role === "ADVISOR") {
-            const advisorClass = await AdvisorClass.findOne({ advisor_user_id: currentUser.userId }).select("_id");
-            if (!advisorClass) throwError("advisor class not found", 404);
-            classId = advisorClass._id;
+            if (!classId) {
+                // Không truyền class_id → lấy lớp ACTIVE đầu tiên của cố vấn
+                const advisorClass = await AdvisorClass.findOne({
+                    advisor_user_id: currentUser.userId,
+                    status: "ACTIVE",
+                })
+                    .sort({ createdAt: 1 })
+                    .select("_id");
+                if (!advisorClass) throwError("advisor class not found", 404);
+                classId = advisorClass._id;
+            } else {
+                // Truyền class_id → xác minh lớp đó thuộc cố vấn này
+                const advisorClass = await AdvisorClass.findOne({
+                    _id: classId,
+                    advisor_user_id: currentUser.userId,
+                }).select("_id");
+                if (!advisorClass) throwError("class not found or does not belong to this advisor", 403);
+            }
         }
         if (!classId) throwError("class_id is required", 422);
 

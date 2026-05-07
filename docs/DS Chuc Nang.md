@@ -71,80 +71,83 @@ Sơ đồ BFD – Hệ thống AI-Advisor
 
 **3. Product Backlog (Mapping từ chức năng)**
 
-| **PBI ID** | **Feature / User Story**       | **Description**                                 | **User** | **Priority** |
-|------------|--------------------------------|-------------------------------------------------|----------|--------------|
-| PB01       | User login                     | User can login to the system                    | All      | High         |
-| PB02       | User logout                    | User can logout from system                     | All      | High         |
-| PB03       | Manage user profile            | View and edit profile information               | All      | Medium       |
-| PB04       | Submit academic data           | Student enters GPA, stress, motivation          | Student  | High         |
-| PB05       | Submit advising feedback       | Student sends feedback after advising session   | Student  | High         |
-| PB06       | View student dashboard         | Student views risk score and progress charts    | Student  | High         |
-| PB07       | Ask academic chatbot           | Student asks academic questions                 | Student  | Medium       |
-| PB08       | Monitor students               | Advisor views list of students with risk scores | Advisor  | High         |
-| PB09       | Receive risk alerts            | Advisor receives alerts for high-risk students  | Advisor  | High         |
-| PB10       | View sentiment alerts          | Advisor sees negative sentiment feedback        | Advisor  | Medium       |
-| PB11       | Upload meeting notes           | Advisor records advising session notes          | Advisor  | High         |
-| PB12       | View summarized meeting notes  | Advisor views AI generated summary              | Advisor  | Medium       |
-| PB13       | Faculty dashboard analytics    | Faculty monitors risk distribution and KPI      | Faculty  | Medium       |
-| PB14       | Manage system users            | Admin manages user accounts                     | Admin    | Medium       |
-| PB15       | Configure system settings      | Admin configures system parameters              | Admin    | Low          |
-| PB16       | Risk prediction analysis       | System predicts academic risk                   | System   | High         |
-| PB17       | Sentiment analysis processing  | System analyzes student feedback                | System   | High         |
-| PB18       | Meeting summarization          | System summarizes advising notes                | System   | Medium       |
-| PB19       | Anomaly detection              | System detects abnormal academic behavior       | System   | Medium       |
-| PB20       | Academic chatbot service       | Chatbot answers academic questions              | System   | Medium       |
-| PB21       | Dashboard analytics processing | Aggregate statistics for dashboards             | System   | High         |
-| PB22       | Notification alerts            | System sends alerts to advisors                 | System   | Medium       |
-| PB23       | Recommendation engine          | Suggest improvement actions to students         | System   | Medium       |
+| **PBI ID** | **Feature / User Story**            | **Description**                                                                                                   | **User** | **Priority** |
+|------------|-------------------------------------|-------------------------------------------------------------------------------------------------------------------|----------|--------------|
+| PB01       | User login                          | User can login to the system                                                                                      | All      | High         |
+| PB02       | User logout                         | User can logout from system                                                                                       | All      | High         |
+| PB03       | Manage user profile                 | View and edit profile information                                                                                 | All      | Medium       |
+| PB04       | Submit academic data                | Student enters GPA, stress, motivation                                                                            | Student  | High         |
+| PB05       | Submit advising feedback            | Student sends feedback after advising session                                                                     | Student  | High         |
+| PB06       | View student dashboard              | Student views risk score and progress charts                                                                      | Student  | High         |
+| PB07       | Monitor students                    | Advisor views list of students with risk scores                                                                   | Advisor  | High         |
+| PB08       | Receive risk alerts                 | Advisor receives alerts for high-risk students                                                                    | Advisor  | High         |
+| PB09       | View sentiment alerts               | Advisor sees negative sentiment feedback                                                                          | Advisor  | Medium       |
+| PB10       | Create & Update Meeting Notes       | Cho phép Cố vấn tạo mới hoặc chỉnh sửa các ghi chú sau mỗi buổi tư vấn với sinh viên                            | Advisor  | High         |
+| PB11       | View & Search Meeting History       | Cho phép Cố vấn xem lại toàn bộ lịch sử các buổi tư vấn cũ, hỗ trợ tìm kiếm theo tên sinh viên hoặc ngày tháng | Advisor  | Medium       |
+| PB12       | Delete or Archive Meeting Notes     | Cho phép quản lý vòng đời của ghi chú (xóa các ghi chú sai hoặc lưu trữ các ghi chú cũ)                         | Advisor  | Medium       |
+| PB13       | Admin dashboard analytics           | Admin monitors risk distribution and KPI across the system                                                        | Admin    | Medium       |
+| PB14       | Manage system users                 | Admin manages user accounts                                                                                       | Admin    | Medium       |
+| PB15       | Configure system settings           | Admin configures system parameters                                                                                | Admin    | Low          |
+| PB16       | Risk prediction analysis            | System predicts academic risk                                                                                     | System   | High         |
+| PB17       | Sentiment analysis processing       | System analyzes student feedback                                                                                  | System   | High         |
+| PB18       | Anomaly detection                   | System detects abnormal academic behavior                                                                         | System   | Medium       |
+| PB19       | Dashboard analytics processing      | Aggregate statistics for dashboards                                                                               | System   | High         |
+| PB20       | Notification alerts                 | System sends alerts to advisors                                                                                   | System   | Medium       |
+| PB21       | Recommendation engine               | Suggest improvement actions to students                                                                           | System   | Medium       |
 
 mapping chi tiết cho AI-ADVISOR
 
-| **PBI** | **Frontend Feature**        | **Backend Service**    | **API Endpoint**       | **AI Module**            |
-|---------|-----------------------------|------------------------|------------------------|--------------------------|
-| PB01    | Login UI                    | Authentication Service | /api/auth/login        | —                        |
-| PB02    | Logout button               | Token Service          | /api/auth/logout       | —                        |
-| PB03    | Profile page                | User Management        | /api/users             | —                        |
-| PB04    | Academic data form          | Student Data Service   | /api/academic/submit   | —                        |
-| PB05    | Feedback form               | Feedback Service       | /api/feedback          | Sentiment Analysis       |
-| PB06    | Student dashboard charts    | Dashboard Service      | /api/dashboard/student | Risk Prediction          |
-| PB07    | Chatbot interface           | Chat service           | /api/chatbot/query     | Academic Chatbot         |
-| PB08    | Student risk table          | Dashboard Service      | /api/dashboard/advisor | Risk Prediction          |
-| PB09    | Risk alerts panel           | Notification Service   | /api/dashboard/advisor | Risk Prediction          |
-| PB10    | Sentiment alerts panel      | Feedback Service       | /api/feedback/list     | Sentiment Analysis       |
-| PB11    | Upload meeting notes UI     | Meeting Notes Service  | /api/meeting           | —                        |
-| PB12    | View summarized notes UI    | Meeting Notes Service  | /api/meeting           | Meeting Summarization    |
-| PB13    | Faculty analytics dashboard | Dashboard Service      | /api/dashboard/faculty | Risk Prediction          |
-| PB14    | Admin user management       | User Management        | /api/users             | —                        |
-| PB15    | Admin configuration panel   | System Config Service  | /api/config            | —                        |
-| PB16    | Risk score calculation      | Analytics Engine       | internal service       | Academic Risk Prediction |
-| PB17    | Feedback sentiment analysis | Feedback Service       | /api/feedback/list     | Sentiment Analysis       |
-| PB18    | Meeting note summarization  | Meeting Service        | /api/meeting           | Meeting Summarization    |
-| PB19    | Academic anomaly detection  | Analytics Engine       | internal service       | Anomaly Detection        |
-| PB20    | Chatbot answering system    | Chatbot Service        | /api/chatbot/query     | Academic Chatbot         |
-| PB21    | Dashboard statistics        | Dashboard Service      | /api/dashboard/\*      | Risk Prediction          |
-| PB22    | Alert notification system   | Notification Service   | internal API           | Anomaly Detection        |
-| PB23    | Recommendation system       | Recommendation Engine  | internal API           | Risk Prediction          |
+| **PBI** | **Frontend Feature**             | **Backend Service**    | **API Endpoint**       | **AI Module**            |
+|---------|----------------------------------|------------------------|------------------------|--------------------------|
+| PB01    | Login UI                         | Authentication Service | /api/auth/login        | —                        |
+| PB02    | Logout button                    | Token Service          | /api/auth/logout       | —                        |
+| PB03    | Profile page                     | User Management        | /api/users             | —                        |
+| PB04    | Academic data form               | Student Data Service   | /api/academic/submit   | —                        |
+| PB05    | Feedback form                    | Feedback Service       | /api/feedback          | Sentiment Analysis       |
+| PB06    | Student dashboard charts         | Dashboard Service      | /api/dashboard/student | Risk Prediction          |
+| PB07    | Student risk table               | Dashboard Service      | /api/dashboard/advisor | Risk Prediction          |
+| PB08    | Risk alerts panel                | Notification Service   | /api/dashboard/advisor | Risk Prediction          |
+| PB09    | Sentiment alerts panel           | Feedback Service       | /api/feedback/list     | Sentiment Analysis       |
+| PB10    | Create & edit meeting notes UI   | Meeting Notes Service  | /api/meeting           | —                        |
+| PB11    | Meeting history & search UI      | Meeting Notes Service  | /api/meeting           | —                        |
+| PB12    | Delete / archive meeting notes   | Meeting Notes Service  | /api/meeting           | —                        |
+| PB13    | Admin analytics dashboard        | Dashboard Service      | /api/dashboard/admin   | Risk Prediction          |
+| PB14    | Admin user management            | User Management        | /api/users             | —                        |
+| PB15    | Admin configuration panel        | System Config Service  | /api/config            | —                        |
+| PB16    | Risk score calculation           | Analytics Engine       | internal service       | Academic Risk Prediction |
+| PB17    | Feedback sentiment analysis      | Feedback Service       | /api/feedback/list     | Sentiment Analysis       |
+| PB18    | Academic anomaly detection       | Analytics Engine       | internal service       | Anomaly Detection        |
+| PB19    | Dashboard statistics             | Dashboard Service      | /api/dashboard/\*      | Risk Prediction          |
+| PB20    | Alert notification system        | Notification Service   | internal API           | Anomaly Detection        |
+| PB21    | Recommendation system            | Recommendation Engine  | internal API           | Risk Prediction          |
 
 Tóm tắt
 
 | **Layer**       | **Modules**  |
 |-----------------|--------------|
-| Frontend        | 17 features  |
+| Frontend        | 15 features  |
 | Backend         | 9 services   |
-| API             | 13 endpoints |
-| AI              | 5 models     |
-| Product Backlog | 23 PB        |
+| API             | 11 endpoints |
+| AI              | 3 models     |
+| Product Backlog | 21 PB        |
 
 **Cấu trúc Epic tương ứng với PBI (cho Scrum)**
 
 | **Epic**          | **PBI**   |
 |-------------------|-----------|
 | Authentication    | PB01–PB03 |
-| Student Portal    | PB04–PB07 |
-| Advisor Portal    | PB08–PB12 |
-| Faculty Dashboard | PB13      |
-| Admin Management  | PB14–PB15 |
-| AI Analytics      | PB16–PB23 |
+| Student Portal    | PB04–PB06 |
+| Advisor Portal    | PB07–PB12 |
+| Admin Management  | PB13–PB15 |
+| AI Analytics      | PB16–PB21 |
+
+**Sprint Plan**
+
+| **Sprint** | **PBI**                              | **Mô tả nhóm công việc**                                                    |
+|------------|--------------------------------------|-----------------------------------------------------------------------------|
+| Sprint 1   | PB01, PB02, PB03, PB04, PB05, PB10  | Authentication, profile, nhập liệu học tập, feedback, tạo/sửa meeting notes |
+| Sprint 2   | PB06, PB07, PB13, PB14, PB15, PB16, PB17, PB18, PB19 | Dashboard sinh viên & cố vấn, admin panel, các AI service (Risk, Sentiment, Anomaly, Dashboard analytics) |
+| Sprint 3   | PB08, PB09, PB11, PB12, PB20, PB21  | Alerts, lịch sử & xóa/archive meeting notes, notification, recommendation   |
 
 **Project Timeline**
 

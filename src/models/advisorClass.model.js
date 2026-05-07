@@ -17,7 +17,8 @@ const advisorClassSchema = new mongoose.Schema(
     { timestamps: true, collection: "advisor_classes" }
 );
 
-advisorClassSchema.index({ advisor_user_id: 1 }, { unique: true });
+// advisor_user_id không còn unique — 1 cố vấn có thể cố vấn tối đa 3 lớp
+advisorClassSchema.index({ advisor_user_id: 1 });
 advisorClassSchema.index({ class_code: 1 }, { unique: true });
 advisorClassSchema.index({ status: 1 });
 advisorClassSchema.index({ department_id: 1 });

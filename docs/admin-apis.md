@@ -24,7 +24,7 @@ Với các route cần bảo vệ: gửi header `Authorization: Bearer <access_t
 | POST | `/api/master-data/departments` | Tạo khoa |
 | POST | `/api/master-data/majors` | Tạo ngành |
 | POST | `/api/master-data/terms` | Tạo học kỳ |
-| POST | `/api/advisor-classes/` | Tạo/cập nhật lớp cố vấn (upsert) |
+| POST | `/api/advisor-classes/` | Tạo/cập nhật lớp cố vấn (upsert theo `class_code`; tối đa 3 lớp/cố vấn) |
 
 Nguồn route: `user.route.js`, `masterData.route.js`, `advisorClass.route.js`.
 
@@ -36,7 +36,7 @@ ADMIN gọi được cùng endpoint với các role được liệt kê.
 
 | Phương thức | Đường dẫn | Vai trò |
 |-------------|-----------|---------|
-| POST | `/api/advisor-classes/my` | `ADVISOR`, `ADMIN` |
+| POST | `/api/advisor-classes/my` | `ADVISOR`, `ADMIN` — trả về **mảng** lớp (1–3 lớp) |
 | POST | `/api/class-members/add` | `ADVISOR`, `ADMIN` |
 | POST | `/api/class-members/list` | `ADVISOR`, `ADMIN` |
 | POST | `/api/students/` | `ADVISOR`, `FACULTY`, `ADMIN` |

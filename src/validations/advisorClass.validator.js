@@ -11,7 +11,10 @@ class AdvisorClassValidator {
         body("status").optional().isIn(["ACTIVE", "INACTIVE"]),
     ];
 
-    getMyClassValidator = [body("advisor_user_id").optional().isMongoId().withMessage("invalid advisor_user_id")];
+    // Dùng cho POST /advisor-classes/my — lấy danh sách lớp của cố vấn (1–3 lớp)
+    getMyClassValidator = [
+        body("advisor_user_id").optional().isMongoId().withMessage("invalid advisor_user_id"),
+    ];
 }
 
 module.exports = new AdvisorClassValidator();

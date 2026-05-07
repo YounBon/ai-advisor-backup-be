@@ -233,6 +233,7 @@ class FeedbackService {
                 .populate("meeting_id", "meeting_time meeting_end_time")
                 .populate("class_id", "class_code class_name")
                 .populate("advisor_user_id", "email profile.full_name")
+                .populate("student_user_id", "email profile.full_name student_info.student_code")
                 .lean(),
             Feedback.countDocuments(filter),
         ]);
@@ -241,20 +242,24 @@ class FeedbackService {
             const m = row.meeting_id && typeof row.meeting_id === "object" ? row.meeting_id : null;
             const c = row.class_id && typeof row.class_id === "object" ? row.class_id : null;
             const a = row.advisor_user_id && typeof row.advisor_user_id === "object" ? row.advisor_user_id : null;
+            const s = row.student_user_id && typeof row.student_user_id === "object" ? row.student_user_id : null;
             const classDisplay =
                 c && (c.class_code || c.class_name)
                     ? [c.class_code, c.class_name].filter(Boolean).join(" — ")
                     : null;
             const advisorDisplay = a?.profile?.full_name || a?.email || null;
+            const studentDisplay = s?.profile?.full_name || s?.student_info?.student_code || s?.email || null;
             return {
                 ...row,
                 meeting_id: m ? m._id : row.meeting_id,
                 class_id: c ? c._id : row.class_id,
                 advisor_user_id: a ? a._id : row.advisor_user_id,
+                student_user_id: s ? s._id : row.student_user_id,
                 meeting_time: m?.meeting_time ?? null,
                 meeting_end_time: m?.meeting_end_time ?? null,
                 class_display: classDisplay,
                 advisor_display: advisorDisplay,
+                student_display: studentDisplay,
             };
         });
 

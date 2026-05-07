@@ -32,6 +32,12 @@ const meetingSchema = new mongoose.Schema(
         notes_raw: { type: String, required: true, trim: true, minlength: 30 },
         notes_summary: { type: String },
         summary_model: { type: String, default: "T5" },
+        status: {
+            type: String,
+            enum: ["ACTIVE", "ARCHIVED"],
+            default: "ACTIVE",
+            index: true,
+        },
         file: {
             url: { type: String, trim: true },
             download_url: { type: String, trim: true },
