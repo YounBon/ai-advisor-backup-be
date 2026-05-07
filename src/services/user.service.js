@@ -94,12 +94,25 @@ class UserService {
         const filter = {};
         if (body.role) filter.role = body.role;
         if (body.status) filter.status = body.status;
+
+        // Filter theo khoa
+        if (body.department_id) {
+            filter["org.department_id"] = body.department_id;
+        }
+
         if (body.search) {
-            filter.$or = [
+            const searchOr = [
                 { username: { $regex: body.search, $options: "i" } },
                 { email: { $regex: body.search, $options: "i" } },
                 { "profile.full_name": { $regex: body.search, $options: "i" } },
             ];
+            // Tìm theo mã sinh viên hoặc mã cán bộ tùy role
+            if (body.role === "STUDENT") {
+                searchOr.push({ "student_info.student_code": { $regex: body.search, $options: "i" } });
+            } else if (body.role === "ADVISOR") {
+                searchOr.push({ "advisor_info.staff_code": { $regex: body.search, $options: "i" } });
+            }
+            filter.$or = searchOr;
         }
 
         const [items, total] = await Promise.all([
@@ -125,10 +138,7 @@ class UserService {
         };
     }
 
-    /**
-     * Full user profile (no password) + lớp cố vấn & cố vấn chủ nhiệm.
-     * ADVISOR: chỉ xem sinh viên thuộc lớp ACTIVE do mình phụ trách.
-     */
+
     async getUserInfo(body, currentUser) {
         const targetUserId = body.user_id;
         if (!targetUserId) throwError("user_id is required", 422);
@@ -223,7 +233,6 @@ class UserService {
         };
     }
 
-    /** Текущий пользователь по JWT (любая активная роль). */
     async getMe(currentUser) {
         const userId = currentUser?.userId;
         if (!userId) throwError("unauthorized", 401);
@@ -238,7 +247,6 @@ class UserService {
         return user;
     }
 
-    /** Đổi mật khẩu — yêu cầu mật khẩu cũ đúng. */
     async changePassword(body, currentUser) {
         const userId = currentUser?.userId;
         if (!userId) throwError("unauthorized", 401);
@@ -254,13 +262,12 @@ class UserService {
         const isMatch = await user.comparePassword(old_password);
         if (!isMatch) throwError("Mật khẩu cũ không đúng", 401);
 
-        user.password_hash = new_password; // pre-save hook sẽ hash
+        user.password_hash = new_password;
         await user.save();
 
         return { updated: true };
     }
 
-    /** Обновление собственного профиля (без смены роли/email/username). */
     async updateMyProfile(body, currentUser) {
         const userId = currentUser?.userId;
         if (!userId) throwError("unauthorized", 401);

@@ -32,6 +32,15 @@ class AuthController {
             next(error);
         }
     }
+
+    /** Trả về thông tin user hiện tại dựa trên token — dùng để verify token còn hợp lệ */
+    async me(req, res, next) {
+        try {
+            return res.status(200).json({ message: "Lấy thông tin người dùng thành công", data: req.user });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 module.exports = new AuthController();
