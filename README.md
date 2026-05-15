@@ -40,8 +40,6 @@ JWT_EXPIRES_IN=7d
 - Hoặc chạy nhanh:
 
 ```bash
-cd ai-services/fastapi-ai
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
 Sau khi AI server đã chạy (thường ở http://localhost:8001), bạn mới chạy backend như hướng dẫn bên dưới.

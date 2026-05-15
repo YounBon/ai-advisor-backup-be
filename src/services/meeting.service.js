@@ -83,7 +83,6 @@ class MeetingService {
         const dateTo = body.date_to ? new Date(body.date_to) : null;
         const statusFilter = body.status === "ARCHIVED" ? "ARCHIVED" : "ACTIVE";
 
-        // If no search filters → use simple query (fast path)
         if (!studentName && !dateFrom && !dateTo) {
             const filter = { advisor_user_id: advisorUserId, status: statusFilter };
             const [items, total] = await Promise.all([
@@ -102,7 +101,6 @@ class MeetingService {
             };
         }
 
-        // Aggregation pipeline for search
         const mongoose = require("mongoose");
         const advisorObjId = new mongoose.Types.ObjectId(String(advisorUserId));
 
@@ -111,7 +109,6 @@ class MeetingService {
             matchStage.meeting_time = {};
             if (dateFrom) matchStage.meeting_time.$gte = dateFrom;
             if (dateTo) {
-                // include the full day of dateTo
                 const endOfDay = new Date(dateTo);
                 endOfDay.setHours(23, 59, 59, 999);
                 matchStage.meeting_time.$lte = endOfDay;
@@ -156,8 +153,6 @@ class MeetingService {
         }
 
         pipeline.push({ $sort: { meeting_time: -1 } });
-
-        // Count total before pagination
         const countPipeline = [...pipeline, { $count: "total" }];
         const [countResult, rawItems] = await Promise.all([
             Meeting.aggregate(countPipeline),
@@ -383,7 +378,6 @@ class MeetingService {
         if (String(meeting.advisor_user_id) !== String(advisorUserId)) {
             throwError("forbidden: you are not the advisor of this meeting", 403);
         }
-        // Block deletion if any feedback exists — preserve data integrity
         const feedbackCount = await Feedback.countDocuments({ meeting_id: meetingId });
         if (feedbackCount > 0) {
             throwError(`cannot delete meeting: ${feedbackCount} feedback record(s) exist. Archive it instead.`, 409);

@@ -31,12 +31,4 @@ router.post(
     chatbotController.sendMessage
 );
 
-// GET /api/chatbot/usage — xem thống kê usage theo ngày (chỉ ADMIN/FACULTY)
-router.get(
-    "/usage",
-    authMiddleware,
-    authorizeRoles("ADMIN", "FACULTY"),
-    chatbotController.getUsage
-);
-
 module.exports = router;

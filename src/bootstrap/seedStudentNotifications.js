@@ -1,12 +1,3 @@
-/**
- * seedStudentNotifications.js
- *
- * Seed notifications cho student Trần Đình Khoa từ các alert đã có trong DB.
- * Chỉ seed cho các kỳ có alert RISK hoặc ANOMALY (risk_label = -1).
- *
- * Chạy: node src/bootstrap/seedStudentNotifications.js
- */
-
 require("dotenv").config();
 const mongoose = require("mongoose");
 const connectDB = require("../config/db");
@@ -24,7 +15,6 @@ async function main() {
     const student = await User.findOne({ username: "sv_trandinhkhoa" }).select("_id");
     if (!student) { log("Student not found"); process.exit(1); }
 
-    // Lấy tất cả alert của student này
     const alerts = await Alert.find({ student_user_id: student._id })
         .populate("term_id", "term_name term_code")
         .sort({ detected_at: 1 });
@@ -35,7 +25,6 @@ async function main() {
         const termName = alert.term_id?.term_name || alert.term_id?.term_code || null;
         const termLabel = termName ? ` trong ${termName}` : "";
 
-        // Kiểm tra đã có notification cho student chưa
         const existing = await Notification.findOne({
             recipient_user_id: student._id,
             alert_id: alert._id,
@@ -64,14 +53,14 @@ async function main() {
             alert_id: alert._id,
             title,
             content,
-            is_read: alert.status === "RESOLVED", // kỳ cũ đã resolved → đánh dấu đã đọc
+            is_read: alert.status === "RESOLVED", 
             sent_at: alert.detected_at || new Date(),
             read_at: alert.status === "RESOLVED" ? new Date(alert.detected_at?.getTime() + 24 * 60 * 60 * 1000) : null,
         });
         log(`Created notification: ${alert.alert_type} — ${termName} (${alert.status})`);
     }
 
-    log("\n✅ Done! Student notifications seeded.");
+    log("\n Done! Student notifications seeded.");
     await mongoose.disconnect();
 }
 

@@ -23,19 +23,6 @@ class ChatbotController {
             next(error);
         }
     }
-
-    /**
-     * GET /api/chatbot/usage
-     * Trả về thống kê số request/ngày cho từng API key (chỉ ADMIN/FACULTY)
-     */
-    async getUsage(req, res, next) {
-        try {
-            const stats = chatbotService.getUsageStats();
-            return res.status(200).json({ message: "OK", data: stats });
-        } catch (error) {
-            next(error);
-        }
-    }
 }
 
 module.exports = new ChatbotController();

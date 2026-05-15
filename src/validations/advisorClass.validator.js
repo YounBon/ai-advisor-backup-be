@@ -11,9 +11,23 @@ class AdvisorClassValidator {
         body("status").optional().isIn(["ACTIVE", "INACTIVE"]),
     ];
 
-    // Dùng cho POST /advisor-classes/my — lấy danh sách lớp của cố vấn (1–3 lớp)
     getMyClassValidator = [
         body("advisor_user_id").optional().isMongoId().withMessage("invalid advisor_user_id"),
+    ];
+
+    listAllClassesValidator = [
+        body("department_id").optional().isMongoId().withMessage("invalid department_id"),
+        body("major_id").optional().isMongoId().withMessage("invalid major_id"),
+        body("advisor_user_id").optional().isMongoId().withMessage("invalid advisor_user_id"),
+        body("status").optional().isIn(["ACTIVE", "INACTIVE"]),
+        body("search").optional().isString().trim(),
+        body("page").optional().isInt({ min: 1 }).withMessage("page must be an integer >= 1"),
+        body("limit").optional().isInt({ min: 1, max: 100 }).withMessage("limit must be between 1 and 100"),
+    ];
+
+    changeAdvisorValidator = [
+        body("class_id").notEmpty().withMessage("class_id is required").isMongoId().withMessage("invalid class_id"),
+        body("new_advisor_user_id").notEmpty().withMessage("new_advisor_user_id is required").isMongoId().withMessage("invalid new_advisor_user_id"),
     ];
 }
 

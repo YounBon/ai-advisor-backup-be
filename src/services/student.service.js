@@ -29,12 +29,6 @@ function toDisplayStudent(user) {
 }
 
 class StudentService {
-    /**
-     * @param {object} body
-     * @param {{ role?: string; userId?: import("mongoose").Types.ObjectId | string }} [currentUser]
-     * Khi có class_id: chỉ trả sinh viên đúng khoa/ngành của lớp, loại đã ACTIVE trong lớp này
-     * và đã ACTIVE ở lớp khác. advisor_user_id (tuỳ chọn) phải trùng advisor của lớp.
-     */
     async getStudents(body, currentUser) {
         const page = Number(body.page || 1);
         const limit = Number(body.limit || 20);
@@ -167,12 +161,10 @@ class StudentService {
         let departmentDisplay = null;
         let majorDisplay = null;
 
-        // Ưu tiên lấy từ advisor_class, fallback về org của student
         const deptSource = advisorClass?.department_id || student.org?.department_id;
         const majorSource = advisorClass?.major_id || student.org?.major_id;
 
         if (deptSource) {
-            // Nếu đã populate (object), dùng luôn; nếu là ObjectId thì query
             if (typeof deptSource === 'object' && deptSource.department_name) {
                 departmentDisplay = [deptSource.department_code, deptSource.department_name].filter(Boolean).join(" — ");
             } else {

@@ -25,5 +25,32 @@ router.post(
     classMemberController.listMembers
 );
 
+router.post(
+    "/remove",
+    authMiddleware,
+    authorizeRoles("ADVISOR", "ADMIN"),
+    classMemberValidator.removeMembersValidator,
+    validate,
+    classMemberController.removeMembers
+);
+
+router.post(
+    "/transfer",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    classMemberValidator.transferMembersValidator,
+    validate,
+    classMemberController.transferMembers
+);
+
+router.post(
+    "/unassigned",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    classMemberValidator.listUnassignedStudentsValidator,
+    validate,
+    classMemberController.listUnassignedStudents
+);
+
 module.exports = router;
 

@@ -11,19 +11,19 @@ const { randomInRange } = require('../helpers');
 
 const NOTIF_TEMPLATES = {
     RISK: {
-        HIGH: (name) => ({ title: `⚠️ Cảnh báo rủi ro cao: ${name}`, content: `Sinh viên ${name} có nguy cơ học tập cao trong học kỳ này. GPA thấp và có môn trượt. Cần can thiệp ngay.` }),
-        MEDIUM: (name) => ({ title: `🔔 Cảnh báo rủi ro: ${name}`, content: `Sinh viên ${name} có dấu hiệu rủi ro học tập ở mức trung bình. Cần theo dõi và hỗ trợ kịp thời.` }),
-        LOW: (name) => ({ title: `ℹ️ Theo dõi học tập: ${name}`, content: `Sinh viên ${name} có một số chỉ số học tập cần chú ý. Khuyến khích gặp gỡ tư vấn.` }),
+        HIGH: (name, code) => ({ title: `⚠️ Cảnh báo rủi ro cao: ${name}${code ? ` - ${code}` : ''}`, content: `Sinh viên ${name}${code ? ` - ${code}` : ''} có nguy cơ học tập cao trong học kỳ này. GPA thấp và có môn trượt. Cần can thiệp ngay.` }),
+        MEDIUM: (name, code) => ({ title: `🔔 Cảnh báo rủi ro: ${name}${code ? ` - ${code}` : ''}`, content: `Sinh viên ${name}${code ? ` - ${code}` : ''} có dấu hiệu rủi ro học tập ở mức trung bình. Cần theo dõi và hỗ trợ kịp thời.` }),
+        LOW: (name, code) => ({ title: `ℹ️ Theo dõi học tập: ${name}${code ? ` - ${code}` : ''}`, content: `Sinh viên ${name}${code ? ` - ${code}` : ''} có một số chỉ số học tập cần chú ý. Khuyến khích gặp gỡ tư vấn.` }),
     },
     SENTIMENT: {
-        HIGH: (name) => ({ title: `🚨 Cảnh báo tâm lý: ${name}`, content: `Sinh viên ${name} có phản hồi tiêu cực nghiêm trọng. Cần gặp gỡ và hỗ trợ tâm lý ngay.` }),
-        MEDIUM: (name) => ({ title: `💬 Phản hồi tiêu cực: ${name}`, content: `Sinh viên ${name} bày tỏ cảm xúc tiêu cực trong phản hồi. Cần quan tâm và lắng nghe.` }),
-        LOW: (name) => ({ title: `📝 Phản hồi cần chú ý: ${name}`, content: `Sinh viên ${name} có phản hồi cần được xem xét thêm.` }),
+        HIGH: (name, code) => ({ title: `🚨 Cảnh báo tâm lý: ${name}${code ? ` - ${code}` : ''}`, content: `Sinh viên ${name}${code ? ` - ${code}` : ''} có phản hồi tiêu cực nghiêm trọng. Cần gặp gỡ và hỗ trợ tâm lý ngay.` }),
+        MEDIUM: (name, code) => ({ title: `💬 Phản hồi tiêu cực: ${name}${code ? ` - ${code}` : ''}`, content: `Sinh viên ${name}${code ? ` - ${code}` : ''} bày tỏ cảm xúc tiêu cực trong phản hồi. Cần quan tâm và lắng nghe.` }),
+        LOW: (name, code) => ({ title: `📝 Phản hồi cần chú ý: ${name}${code ? ` - ${code}` : ''}`, content: `Sinh viên ${name}${code ? ` - ${code}` : ''} có phản hồi cần được xem xét thêm.` }),
     },
     ANOMALY: {
-        HIGH: (name) => ({ title: `⚡ Bất thường học tập: ${name}`, content: `Phát hiện bất thường trong dữ liệu học tập của sinh viên ${name}. Cần kiểm tra ngay.` }),
-        MEDIUM: (name) => ({ title: `📊 Bất thường nhẹ: ${name}`, content: `Có sự thay đổi bất thường trong kết quả học tập của sinh viên ${name}.` }),
-        LOW: (name) => ({ title: `📈 Thay đổi học tập: ${name}`, content: `Ghi nhận thay đổi trong xu hướng học tập của sinh viên ${name}.` }),
+        HIGH: (name, code) => ({ title: `⚡ Bất thường học tập: ${name}${code ? ` - ${code}` : ''}`, content: `Phát hiện bất thường trong dữ liệu học tập của sinh viên ${name}${code ? ` - ${code}` : ''}. Cần kiểm tra ngay.` }),
+        MEDIUM: (name, code) => ({ title: `📊 Bất thường nhẹ: ${name}${code ? ` - ${code}` : ''}`, content: `Có sự thay đổi bất thường trong kết quả học tập của sinh viên ${name}${code ? ` - ${code}` : ''}.` }),
+        LOW: (name, code) => ({ title: `📈 Thay đổi học tập: ${name}${code ? ` - ${code}` : ''}`, content: `Ghi nhận thay đổi trong xu hướng học tập của sinh viên ${name}${code ? ` - ${code}` : ''}.` }),
     },
 };
 
@@ -45,7 +45,7 @@ async function seedNotifications({ students, showcaseStudent }) {
 
     // Batch load users (SV) để lấy advisor_user_id và full_name
     const svUsers = await User.find({ _id: { $in: allStudentIds } })
-        .select('_id profile.full_name student_info.advisor_user_id')
+        .select('_id profile.full_name student_info.advisor_user_id student_info.student_code')
         .lean();
     const svMap = new Map(svUsers.map(u => [u._id.toString(), u]));
 
@@ -71,9 +71,10 @@ async function seedNotifications({ students, showcaseStudent }) {
         if (existingSet.has(key)) continue;
 
         const svName = sv.profile?.full_name || 'Sinh viên';
+        const svCode = sv.student_info?.student_code || null;
         const templates = NOTIF_TEMPLATES[alert.alert_type] || NOTIF_TEMPLATES.RISK;
         const tpl = templates[alert.severity] || templates.MEDIUM;
-        const { title, content } = tpl(svName);
+        const { title, content } = tpl(svName, svCode);
 
         const sentAt = new Date(new Date(alert.detected_at).getTime() + Math.floor(randomInRange(5, 30)) * 60 * 1000);
         const isRead = alert.status !== 'OPEN';

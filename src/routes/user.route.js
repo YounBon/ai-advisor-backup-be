@@ -44,4 +44,19 @@ router.post("/",
     userController.getUsers
 );
 
+// Lock / Unlock tài khoản — chỉ ADMIN, không cho xóa để bảo toàn dữ liệu học tập
+router.patch(
+    "/:userId/lock",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    userController.lockUser
+);
+
+router.patch(
+    "/:userId/unlock",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    userController.unlockUser
+);
+
 module.exports = router;

@@ -63,7 +63,6 @@ class DashboardService {
         const limit = Number(body.limit || 20);
         const skip = (page - 1) * limit;
 
-        // Nếu client truyền class_id thì dùng lớp đó, ngược lại lấy lớp ACTIVE đầu tiên của cố vấn
         let advisorClass;
         if (body.class_id) {
             advisorClass = await AdvisorClass.findOne({
@@ -95,7 +94,6 @@ class DashboardService {
             };
         }
 
-        // ── Lấy toàn bộ studentIds của lớp (không phân trang) để tính lịch sử biểu đồ
         const allMemberRows = await ClassMember.find({
             class_id: advisorClass._id,
             status: "ACTIVE",
@@ -144,7 +142,6 @@ class DashboardService {
                 .populate("alert_id", "alert_type severity status detected_at student_user_id")
                 .sort({ sent_at: -1 })
                 .limit(50),
-            // ── Lịch sử cảnh báo theo kì: dùng allStudentIds (toàn lớp, không phân trang)
             this._buildAlertHistoryByTerm(allStudentIds),
         ]);
 
@@ -218,7 +215,6 @@ class DashboardService {
             risk_alerts: riskAlerts.slice(0, 20),
             sentiment_alerts: sentimentAlerts.slice(0, 20),
             anomaly_alerts: anomalyAlerts.slice(0, 20),
-            // ── Dữ liệu lịch sử cho 4 biểu đồ cột theo kì
             alert_history: alertHistoryRaw,
             pagination: {
                 page,
@@ -229,23 +225,10 @@ class DashboardService {
         };
     }
 
-    /**
-     * Tổng hợp lịch sử cảnh báo theo kì học cho 4 biểu đồ cột:
-     *   1. Số SV có cảnh báo RISK qua các kì
-     *   2. Số SV có cảnh báo SENTIMENT qua các kì
-     *   3. Số SV có cảnh báo ANOMALY qua các kì
-     *   4. Số SV có severity HIGH (bất kỳ loại) qua các kì
-     *
-     * Mỗi phần tử trả về:
-     *   { term_id, term_name, term_code, start_date, risk_count, sentiment_count, anomaly_count, high_severity_count }
-     *
-     * @param {ObjectId[]} studentIds - Toàn bộ SV của lớp (không phân trang)
-     * @returns {Promise<Array>}
-     */
+    
     async _buildAlertHistoryByTerm(studentIds) {
         if (!studentIds || studentIds.length === 0) return [];
 
-        // Aggregate: nhóm theo (term_id, alert_type, severity) → đếm distinct student
         const raw = await Alert.aggregate([
             {
                 $match: {
@@ -253,21 +236,18 @@ class DashboardService {
                     alert_type: { $in: ["RISK", "SENTIMENT", "ANOMALY"] },
                 },
             },
-            // Loại bỏ duplicate: mỗi (student, term, alert_type) chỉ tính 1 lần
             {
                 $group: {
                     _id: {
                         term_id: "$term_id",
                         alert_type: "$alert_type",
                         student_user_id: "$student_user_id",
-                        // Ghi nhận severity cao nhất của SV trong kì đó (HIGH > MEDIUM > LOW)
                         has_high: {
                             $cond: [{ $eq: ["$severity", "HIGH"] }, true, false],
                         },
                     },
                 },
             },
-            // Nhóm lại theo (term_id, alert_type) → đếm số SV distinct
             {
                 $group: {
                     _id: {
@@ -277,7 +257,6 @@ class DashboardService {
                     student_count: { $sum: 1 },
                 },
             },
-            // Pivot alert_type thành các field riêng theo từng kì
             {
                 $group: {
                     _id: "$_id.term_id",
@@ -301,7 +280,6 @@ class DashboardService {
             { $sort: { _id: 1 } },
         ]);
 
-        // Aggregate riêng cho high_severity_count: đếm distinct SV có ít nhất 1 alert HIGH trong kì
         const highRaw = await Alert.aggregate([
             {
                 $match: {
@@ -309,7 +287,6 @@ class DashboardService {
                     severity: "HIGH",
                 },
             },
-            // Distinct (term_id, student_user_id)
             {
                 $group: {
                     _id: {
@@ -318,7 +295,6 @@ class DashboardService {
                     },
                 },
             },
-            // Đếm số SV distinct theo kì
             {
                 $group: {
                     _id: "$_id.term_id",
@@ -329,7 +305,6 @@ class DashboardService {
 
         const highMap = new Map(highRaw.map((r) => [String(r._id), r.high_severity_count]));
 
-        // Lấy thông tin kì học để có term_name, term_code, start_date làm label
         const termIds = raw.map((r) => r._id).filter(Boolean);
         const terms = await Term.find({ _id: { $in: termIds } })
             .select("_id term_code term_name start_date")
@@ -337,7 +312,6 @@ class DashboardService {
             .lean();
         const termMap = new Map(terms.map((t) => [String(t._id), t]));
 
-        // Ghép dữ liệu và sort theo start_date của kì
         const result = raw
             .map((r) => {
                 const termIdStr = String(r._id);
@@ -371,11 +345,9 @@ class DashboardService {
         const studentIds = students.map((s) => s._id);
         const studentMap = new Map(students.map((s) => [String(s._id), s]));
 
-        // Lấy học kỳ active
         const activeTerm = await Term.findOne({ status: "ACTIVE" }).select("_id term_code term_name");
 
         const [riskDistribution, riskKpi, anomalySummary, feedbackSentiment, alertHistoryRaw, topRiskRaw] = await Promise.all([
-            // Phân bố nhãn rủi ro — kỳ active
             RiskPrediction.aggregate([
                 {
                     $match: {
@@ -383,11 +355,9 @@ class DashboardService {
                         ...(activeTerm ? { term_id: activeTerm._id } : { is_latest: true }),
                     },
                 },
-                // Mỗi sinh viên chỉ tính 1 lần (điểm cao nhất trong kỳ)
                 { $group: { _id: "$student_user_id", risk_label: { $first: "$risk_label" }, risk_score: { $max: "$risk_score" } } },
                 { $group: { _id: "$risk_label", count: { $sum: 1 } } },
             ]),
-            // KPI rủi ro — kỳ active
             RiskPrediction.aggregate([
                 {
                     $match: {
@@ -395,7 +365,6 @@ class DashboardService {
                         ...(activeTerm ? { term_id: activeTerm._id } : { is_latest: true }),
                     },
                 },
-                // Deduplicate: mỗi sinh viên lấy điểm cao nhất trong kỳ
                 { $group: { _id: "$student_user_id", risk_score: { $max: "$risk_score" } } },
                 {
                     $group: {
@@ -408,7 +377,6 @@ class DashboardService {
                     },
                 },
             ]),
-            // Tổng hợp cảnh báo theo loại & mức độ — kỳ active
             activeTerm
                 ? Alert.aggregate([
                     { $match: { student_user_id: { $in: studentIds }, term_id: activeTerm._id } },
@@ -430,7 +398,6 @@ class DashboardService {
                     },
                     { $sort: { "_id.alert_type": 1, "_id.severity": 1 } },
                 ]),
-            // Phân bố cảm xúc phản hồi trong kỳ active
             activeTerm
                 ? Feedback.aggregate([
                     {
@@ -456,9 +423,7 @@ class DashboardService {
                     },
                 ])
                 : Promise.resolve([]),
-            // Lịch sử cảnh báo HIGH qua các kỳ
             this._buildAlertHistoryByTerm(studentIds),
-            // Top 10 sinh viên rủi ro cao nhất — kỳ active, mỗi sinh viên chỉ 1 lần
             activeTerm
                 ? RiskPrediction.aggregate([
                     {
@@ -467,7 +432,6 @@ class DashboardService {
                             term_id: activeTerm._id,
                         },
                     },
-                    // Group theo student, lấy risk_score cao nhất trong kỳ active
                     {
                         $group: {
                             _id: "$student_user_id",
@@ -481,7 +445,6 @@ class DashboardService {
                 : Promise.resolve([]),
         ]);
 
-        // Gắn thông tin sinh viên vào top risk
         const topRiskStudents = (topRiskRaw || []).map((r) => {
             const studentId = String(r._id ?? r.student_user_id)
             const s = studentMap.get(studentId);

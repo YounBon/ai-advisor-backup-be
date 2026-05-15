@@ -69,8 +69,11 @@ class UserService {
         }
 
         if (body.role === "ADVISOR") {
+            if (!body.advisor_info?.staff_code?.trim()) {
+                throwError("advisor_info.staff_code is required", 422);
+            }
             payload.advisor_info = {
-                staff_code: body.advisor_info?.staff_code,
+                staff_code: body.advisor_info.staff_code.trim(),
                 title: body.advisor_info?.title,
             };
         }
@@ -300,6 +303,48 @@ class UserService {
         await User.findByIdAndUpdate(userId, { $set }, { new: true });
 
         return this.getMe(currentUser);
+    }
+
+    async lockUser(body, currentUser) {
+        const requesterRole = currentUser?.role;
+        if (requesterRole !== "ADMIN") throwError("forbidden", 403);
+
+        const { user_id } = body;
+        if (!user_id) throwError("user_id is required", 422);
+
+        const targetUser = await User.findById(user_id);
+        if (!targetUser) throwError("user not found", 404);
+
+        if (targetUser.role === "ADMIN") {
+            throwError("cannot lock admin account", 403);
+        }
+
+        if (targetUser.status === "LOCKED") {
+            throwError("user is already locked", 422);
+        }
+
+        await User.findByIdAndUpdate(user_id, { status: "LOCKED" });
+
+        return { locked: true };
+    }
+
+    async unlockUser(body, currentUser) {
+        const requesterRole = currentUser?.role;
+        if (requesterRole !== "ADMIN") throwError("forbidden", 403);
+
+        const { user_id } = body;
+        if (!user_id) throwError("user_id is required", 422);
+
+        const targetUser = await User.findById(user_id);
+        if (!targetUser) throwError("user not found", 404);
+
+        if (targetUser.status !== "LOCKED") {
+            throwError("user is not locked", 422);
+        }
+
+        await User.findByIdAndUpdate(user_id, { status: "ACTIVE" });
+
+        return { unlocked: true };
     }
 }
 

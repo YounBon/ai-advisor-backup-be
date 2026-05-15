@@ -54,6 +54,24 @@ class UserController {
             next(error);
         }
     }
+
+    async lockUser(req, res, next) {
+        try {
+            const result = await userService.lockUser({ user_id: req.params.userId }, req.user);
+            return res.status(200).json({ message: "Khóa tài khoản thành công", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async unlockUser(req, res, next) {
+        try {
+            const result = await userService.unlockUser({ user_id: req.params.userId }, req.user);
+            return res.status(200).json({ message: "Mở khóa tài khoản thành công", data: result });
+        } catch (error) {
+            next(error);
+        }
+    }
 }
 
 module.exports = new UserController();

@@ -25,5 +25,30 @@ router.post(
     advisorClassController.getMyClass
 );
 
+router.post(
+    "/list",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    advisorClassValidator.listAllClassesValidator,
+    validate,
+    advisorClassController.listAllClasses
+);
+
+router.post(
+    "/change-advisor",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    advisorClassValidator.changeAdvisorValidator,
+    validate,
+    advisorClassController.changeAdvisor
+);
+
+router.delete(
+    "/:id",
+    authMiddleware,
+    authorizeRoles("ADMIN"),
+    advisorClassController.deleteClass
+);
+
 module.exports = router;
 

@@ -114,7 +114,6 @@ class FeedbackService {
                 sentimentLabel = classified.sentimentLabel;
                 sentimentScore = classified.sentimentScore;
             } catch (error) {
-                // Do not block feedback creation when AI service is unavailable.
                 console.warn("AI sentiment unavailable, fallback to NEUTRAL:", error?.message || error);
             }
         }
@@ -178,6 +177,8 @@ class FeedbackService {
                         student?.profile?.full_name ||
                         student?.student_info?.student_code ||
                         String(sentimentAlert.student_user_id);
+                    const studentCode = student?.student_info?.student_code || null;
+                    const studentDisplay = studentCode ? `${studentName} - ${studentCode}` : studentName;
 
                     const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
                     const duplicate = await Notification.findOne({
@@ -190,8 +191,8 @@ class FeedbackService {
                         await Notification.create({
                             recipient_user_id: advisorId,
                             alert_id: sentimentAlert._id,
-                            title: "Cảnh báo cảm xúc từ sinh viên",
-                            content: `Sinh viên ${studentName} vừa gửi phản hồi có dấu hiệu tâm lý nghiêm trọng.`,
+                            title: `Cảnh báo cảm xúc từ sinh viên: ${studentDisplay}`,
+                            content: `Sinh viên ${studentDisplay} vừa gửi phản hồi có dấu hiệu tâm lý nghiêm trọng.`,
                             sent_at: new Date(),
                         });
                     }
@@ -215,7 +216,6 @@ class FeedbackService {
         if (body.sentiment_label) filter.sentiment_label = body.sentiment_label;
         if (body.meeting_id) filter.meeting_id = body.meeting_id;
 
-        // Scope by token role to prevent ADVISOR/STUDENT from reading unrelated feedback.
         const role = currentUser?.role;
         const userId = currentUser?.userId;
         if (role === "ADVISOR") {

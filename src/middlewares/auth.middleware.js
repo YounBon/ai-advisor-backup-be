@@ -29,7 +29,6 @@ const authMiddleware = async (req, res, next) => {
             accessTokenExp: decoded.exp,
             tokenVersion: decoded.tokenVersion,
         };
-        // console.log('req.user', req.user)
         next();
     } catch (err) {
         return res.status(401).json({ message: "Unauthorized" });

@@ -111,7 +111,6 @@ class AcademicService {
     }
 
     async detectAnomalyViaAI({ studentUserId, latestRecord }) {
-        // Lấy lịch sử: mỗi kỳ chỉ lấy bản ghi mới nhất (is_latest=true) để tránh duplicate
         const history = await AcademicRecord.find({
             student_user_id: studentUserId,
             is_latest: true,
@@ -220,6 +219,8 @@ class AcademicService {
 
         const student = await User.findById(studentUserId).select("profile.full_name student_info.student_code");
         const studentName = student?.profile?.full_name || student?.student_info?.student_code || String(studentUserId);
+        const studentCode = student?.student_info?.student_code || null;
+        const studentDisplay = studentCode ? `${studentName} - ${studentCode}` : studentName;
 
         const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const duplicate = await Notification.findOne({
@@ -253,8 +254,6 @@ class AcademicService {
             return value.toFixed(2);
         };
 
-        // Delta mode: zScores contains actual deltas (current - previous)
-        // Z-score mode: zScores contains statistical z-scores
         const topSignals = Object.entries(zScores)
             .map(([feature, z]) => ({
                 feature,
@@ -272,20 +271,16 @@ class AcademicService {
                 let changeText;
 
                 if (isDeltaMode) {
-                    // Delta mode: z = current - previous (actual change)
                     const delta = item.z;
                     const absDelta = Math.abs(delta).toFixed(2);
 
                     if (item.feature === "stress_level") {
-                        // Stress: increase = bad
                         direction = delta > 0 ? "tăng" : "giảm";
                     } else {
-                        // GPA, attendance, sentiment: decrease = bad
                         direction = delta < 0 ? "giảm" : "tăng";
                     }
                     changeText = `thay đổi=${delta > 0 ? '+' : ''}${delta.toFixed(2)}`;
                 } else {
-                    // Z-score mode: statistical z-score
                     const isBadDirection =
                         item.feature === "stress_level" ? item.z >= 0 : item.z <= 0;
                     direction = isBadDirection ? "tăng đột biến" : "giảm mạnh";
@@ -300,8 +295,8 @@ class AcademicService {
         await Notification.create({
             recipient_user_id: advisorId,
             alert_id: alert._id,
-            title: "Cảnh báo dấu hiệu bất thường",
-            content: `Sinh viên ${studentName} có dấu hiệu bất thường (${anomalyResult?.anomalyType || "Study anomaly"}).${explainText}`,
+            title: `Cảnh báo dấu hiệu bất thường: ${studentDisplay}`,
+            content: `Sinh viên ${studentDisplay} có dấu hiệu bất thường (${anomalyResult?.anomalyType || "Study anomaly"}).${explainText}`,
             sent_at: new Date(),
         });
     }
@@ -333,7 +328,6 @@ class AcademicService {
             return sameRiskGroups.slice(0, MAX_RECOMMENDATIONS_PER_PREDICTION);
         }
 
-        // Fallback to avoid empty recommendations when group levels are mixed.
         return allGroups.slice(0, MAX_RECOMMENDATIONS_PER_PREDICTION);
     }
 
@@ -474,6 +468,8 @@ class AcademicService {
 
         const student = await User.findById(studentUserId).select("profile.full_name student_info.student_code");
         const studentName = student?.profile?.full_name || student?.student_info?.student_code || String(studentUserId);
+        const studentCode = student?.student_info?.student_code || null;
+        const studentDisplay = studentCode ? `${studentName} - ${studentCode}` : studentName;
 
         const dedupeSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
         const duplicate = await Notification.findOne({
@@ -486,8 +482,8 @@ class AcademicService {
         await Notification.create({
             recipient_user_id: advisorId,
             alert_id: alert._id,
-            title: "Cảnh báo nguy cơ học vụ",
-            content: `Sinh viên ${studentName} có nguy cơ cao về chỉ số rủi ro học tập trong học kỳ.`,
+            title: `Cảnh báo nguy cơ học vụ: ${studentDisplay}`,
+            content: `Sinh viên ${studentDisplay} có nguy cơ cao về chỉ số rủi ro học tập trong học kỳ.`,
             sent_at: new Date(),
         });
     }
@@ -572,7 +568,6 @@ class AcademicService {
         ]);
         const computedSentimentScore = sentimentAgg.length ? sentimentAgg[0].avg_feedback_score : null;
 
-        // Lấy bản ghi mới nhất (is_latest=true) của sinh viên trong kỳ này
         const latestRecord = await AcademicRecord.findOne({
             student_user_id: studentUserId,
             term_id: data.term_id,
@@ -605,11 +600,9 @@ class AcademicService {
             throwError("gpa_prev_sem cannot be changed within the same term", 422);
         }
 
-        // Tính version mới: lấy version cao nhất trong kỳ + 1
         const latestVersion = latestRecord?.version ?? 0;
         const nextVersion = latestVersion + 1;
 
-        // Unset is_latest cho tất cả bản ghi cũ của sinh viên trong kỳ này
         if (latestRecord) {
             await AcademicRecord.updateMany(
                 { student_user_id: studentUserId, term_id: data.term_id, is_latest: true },
@@ -650,7 +643,6 @@ class AcademicService {
             motivation_score: Number(updated.motivation_score),
             shcvht_participation: Number(updated.shcvht_participation),
             study_hours: Number(updated.study_hours),
-            // Keep neutral fallback when there is no sentiment from AI-02/feedback yet.
             sentiment_score:
                 typeof updated.sentiment_score === "number" && !Number.isNaN(updated.sentiment_score)
                     ? Number(updated.sentiment_score)
@@ -706,7 +698,6 @@ class AcademicService {
                 payload: riskPayload,
             });
         } catch (error) {
-            // Do not block academic submit if AI service is temporarily unavailable.
             console.warn("AI risk unavailable, skip saving risk prediction:", error?.message || error);
         }
 
@@ -740,7 +731,6 @@ class AcademicService {
                 }
             }
         } catch (error) {
-            // Do not block academic submit if AI anomaly service is temporarily unavailable.
             console.warn("AI anomaly unavailable, skip anomaly detection:", error?.message || error);
         }
 

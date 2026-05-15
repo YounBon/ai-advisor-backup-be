@@ -34,46 +34,6 @@ const GEMINI_API_KEYS = (() => {
     return entries;
 })();
 
-// ============ USAGE TRACKER ============
-// Theo dõi số request/ngày cho từng key
-const usageTracker = {
-    // { "key#1": { "2026-05-07": 42, "2026-05-08": 15 }, "key#2": { ... } }
-    data: {},
-
-    getToday() {
-        return new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    },
-
-    increment(keyId) {
-        const today = this.getToday();
-        if (!this.data[keyId]) this.data[keyId] = {};
-        this.data[keyId][today] = (this.data[keyId][today] || 0) + 1;
-    },
-
-    getCount(keyId, date = null) {
-        const targetDate = date || this.getToday();
-        return this.data[keyId]?.[targetDate] || 0;
-    },
-
-    getSummary() {
-        const today = this.getToday();
-        const summary = {};
-        GEMINI_API_KEYS.forEach(({ keyId }) => {
-            summary[keyId] = this.getCount(keyId, today);
-        });
-        return summary;
-    },
-
-    logSummary() {
-        const summary = this.getSummary();
-        const today = this.getToday();
-        console.log(`\n[Chatbot Usage] ${today}`);
-        Object.entries(summary).forEach(([keyId, count]) => {
-            console.log(`  ${keyId}: ${count} requests`);
-        });
-    }
-};
-
 // Các HTTP status code / message cần fallback sang key khác
 const FALLBACK_STATUS_CODES = new Set([401, 403, 429, 500, 503, 504]);
 const FALLBACK_MESSAGE_PATTERNS = [
@@ -91,14 +51,45 @@ function shouldFallback(err) {
     return FALLBACK_MESSAGE_PATTERNS.some(p => msg.includes(p));
 }
 
+/**
+ * Loại bỏ markdown khỏi text để đảm bảo chatbot không trả về ký tự định dạng
+ * Đây là lớp bảo vệ thứ hai sau system prompt
+ */
+function stripMarkdown(text) {
+    if (!text) return text;
+    return text
+        // Bold: **text** hoặc __text__
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/__(.+?)__/g, "$1")
+        // Italic: *text* hoặc _text_ (không phải bullet)
+        .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1")
+        .replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, "$1")
+        // Strikethrough: ~~text~~
+        .replace(/~~(.+?)~~/g, "$1")
+        // Headers: ## text
+        .replace(/^#{1,6}\s+/gm, "")
+        // Bullet dạng "- " hoặc "* " đầu dòng → giữ nội dung, bỏ ký tự
+        .replace(/^[\*\-]\s+/gm, "")
+        // Dọn khoảng trắng thừa
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+}
+
 // System prompt — giới hạn chatbot chỉ trả lời về học vụ và dữ liệu của sinh viên
 const SYSTEM_PROMPT = `Bạn là trợ lý học vụ AI của hệ thống AI-Advisor, được triển khai tại Đại học Duy Tân (DTU), Đà Nẵng.
+
+CÁCH HỆ THỐNG AI-ADVISOR HOẠT ĐỘNG (bắt buộc nắm rõ, không được suy diễn thêm):
+- Dữ liệu học tập của sinh viên (GPA, số môn trượt, tỉ lệ tham dự, v.v.) được nhập thủ công bởi sinh viên. KHÔNG có tích hợp tự động với hệ thống quản lý đào tạo của trường
+- Sinh viên tự nộp dữ liệu học tập lên hệ thống
+- Các chức năng sinh viên có thể dùng: xem dữ liệu học tập của mình, xem thông báo từ cố vấn, gửi phản hồi (feedback) cho cố vấn, chat với trợ lý AI này
+- Nếu dữ liệu học tập chưa có hoặc chưa cập nhật, sinh viên cần xem myDTU và cập nhật dữ liệu học tập của chính mình. Lưu ý là trung thực về số liệu để AI có thể đánh giá chính xác
+- TUYỆT ĐỐI không bịa ra tính năng hoặc quy trình không có trong mô tả trên
 
 PHẠM VI TRẢ LỜI (chỉ trả lời các chủ đề sau):
 1. Học vụ tại Đại học Duy Tân: quy chế học vụ, điều kiện tốt nghiệp, học lại, cải thiện điểm, học bổng, cảnh báo học vụ, tín chỉ, GPA, xếp loại học lực
 2. Dữ liệu cá nhân của sinh viên: GPA, điểm rủi ro, lịch sử học tập, thông báo, số môn trượt, tỉ lệ tham dự
 3. Tư vấn học tập: dựa trên dữ liệu thực tế của sinh viên để đưa ra lời khuyên cụ thể
-4. Hướng dẫn sử dụng hệ thống AI-Advisor: cách nộp dữ liệu học tập, xem thông báo, gửi phản hồi
+4. Hướng dẫn sử dụng hệ thống AI-Advisor: chỉ giải thích đúng các chức năng đã mô tả ở trên, không suy diễn thêm
 5. Quy chế học vụ đại học tín chỉ tại Việt Nam (học phần, tín chỉ, điểm trung bình tích lũy, v.v.)
 
 QUY TẮC BẮT BUỘC:
@@ -109,7 +100,7 @@ QUY TẮC BẮT BUỘC:
 - Không đưa ra lời khuyên y tế, pháp lý, tài chính cá nhân
 - Xưng hô: gọi sinh viên là "bạn", tự xưng là "mình" hoặc "trợ lý"
 - Giữ câu trả lời dưới 400 từ, luôn kết thúc bằng câu hoàn chỉnh — không được bỏ lửng giữa chừng
-- TUYỆT ĐỐI không dùng markdown trong câu trả lời: không dùng **, __, ##, *, -, bullet dạng ký tự đặc biệt. Nếu cần liệt kê, dùng số thứ tự (1. 2. 3.) và xuống dòng thông thường
+- TUYỆT ĐỐI KHÔNG DÙNG MARKDOWN: không được dùng bất kỳ ký tự định dạng nào như **, __, ##, ###, *, -, ~~ trong câu trả lời. Đây là lỗi nghiêm trọng nếu vi phạm. Ví dụ SAI: "**GPA cao**", "## Tiêu chí". Ví dụ ĐÚNG: "GPA cao", "Tiêu chí". Nếu cần liệt kê, chỉ dùng số thứ tự (1. 2. 3.) và xuống dòng thông thường, không dùng gạch đầu dòng
 - Khi đề cập đến cố vấn học tập, dùng "thầy/cô [Họ tên]" hoặc "giảng viên cố vấn [Họ tên]" — không gọi là "bạn"
 
 CÁCH ĐỀ CẬP QUY CHẾ HỌC VỤ:
@@ -250,22 +241,13 @@ async function callGemini({ apiKey, keyId, modelName, message, trimmedHistory, s
         total_tokens: response.usageMetadata?.totalTokenCount || null,
     };
 
-    // Track usage
-    usageTracker.increment(keyId);
-    const todayCount = usageTracker.getCount(keyId);
-    const allSummary = usageTracker.getSummary();
-    const summaryStr = Object.entries(allSummary)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(' | ');
-
     console.log(
         `[Chatbot] ✓ ${keyId} (${modelName}) | ` +
         `${elapsed}ms | ` +
-        `tokens: ${usage.total_tokens ?? '?'} (prompt=${usage.prompt_tokens ?? '?'}, completion=${usage.completion_tokens ?? '?'}) | ` +
-        `today: ${keyId}=${todayCount} req | all: ${summaryStr}`
+        `tokens: ${usage.total_tokens ?? '?'} (prompt=${usage.prompt_tokens ?? '?'}, completion=${usage.completion_tokens ?? '?'})`
     );
 
-    return { reply: response.text(), usage };
+    return { reply: stripMarkdown(response.text()), usage };
 }
 
 class ChatbotService {
@@ -367,20 +349,6 @@ class ChatbotService {
         throwError("Trợ lý AI hiện không khả dụng. Vui lòng thử lại sau.", 503);
     }
 
-    /**
-     * Trả về thống kê usage cho admin
-     * @returns {{ today: string, keys: Array<{ keyId, model, todayCount, allDates }> }}
-     */
-    getUsageStats() {
-        const today = usageTracker.getToday();
-        const keys = GEMINI_API_KEYS.map(({ keyId, modelName }) => ({
-            keyId,
-            model: modelName,
-            todayCount: usageTracker.getCount(keyId, today),
-            allDates: usageTracker.data[keyId] || {},
-        }));
-        return { today, keys };
-    }
 }
 
 module.exports = new ChatbotService();

@@ -1,15 +1,3 @@
-/**
- * seedTestStudent.js
- *
- * Migration script: tạo đầy đủ dữ liệu test cho sinh viên Trần Đình Khoa
- * - Khoa Đào tạo Quốc tế, ngành Kiến trúc chuẩn CSU
- * - Lớp ARCCSU1, cố vấn Nguyễn Văn A (ThS)
- * - Dữ liệu từ HK1 2023-2024 đến HK đang ACTIVE
- * - Có cảnh báo học tập (RISK) và cảnh báo cảm xúc (SENTIMENT)
- *
- * Chạy: node src/bootstrap/seedTestStudent.js
- */
-
 require("dotenv").config();
 const mongoose = require("mongoose");
 
@@ -28,8 +16,6 @@ const Feedback = require("../models/feedback.model");
 const Alert = require("../models/alert.model");
 const Notification = require("../models/notification.model");
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function log(msg) {
     console.log(`[seed] ${msg}`);
 }
@@ -44,8 +30,6 @@ async function upsertOne(Model, filter, data, label) {
     log(`${label} created: ${doc._id}`);
     return doc;
 }
-
-// ─── Term definitions ────────────────────────────────────────────────────────
 
 const TERM_DEFS = [
     {
@@ -94,15 +78,9 @@ const TERM_DEFS = [
         term_name: "Học kỳ 2",
         start_date: new Date("2026-02-01"),
         end_date: new Date("2026-07-31"),
-        status: "ACTIVE",   // kỳ đang active
+        status: "ACTIVE",   
     },
 ];
-
-// ─── Academic data per term ──────────────────────────────────────────────────
-// Kịch bản: sinh viên bắt đầu ổn, dần sa sút từ HK2 2023-2024,
-// đến HK1 2024-2025 rơi vào nguy cơ cao (risk_label=-1),
-// HK2 2024-2025 có cải thiện nhẹ nhưng vẫn ở mức trung bình,
-// HK1 2025-2026 lại sa sút, HK2 2025-2026 (active) nguy cơ cao + cảm xúc tiêu cực
 
 const ACADEMIC_DATA = {
     "2023-1": {
@@ -209,13 +187,10 @@ const ACADEMIC_DATA = {
     },
 };
 
-// ─── Main ────────────────────────────────────────────────────────────────────
-
 async function main() {
     await connectDB();
     log("Connected to MongoDB");
 
-    // 1. Department
     const dept = await upsertOne(
         Department,
         { department_code: "DTQT" },
@@ -223,7 +198,6 @@ async function main() {
         "Department DTQT"
     );
 
-    // 2. Major
     const major = await upsertOne(
         Major,
         { department_id: dept._id, major_code: "ARCCSU" },
@@ -235,7 +209,6 @@ async function main() {
         "Major ARCCSU"
     );
 
-    // 3. Advisor — Nguyễn Văn A (ThS)
     const advisor = await upsertOne(
         User,
         { username: "gv_nguyenvana" },
@@ -261,7 +234,6 @@ async function main() {
         "Advisor Nguyễn Văn A"
     );
 
-    // 4. Student — Trần Đình Khoa
     const student = await upsertOne(
         User,
         { "student_info.student_code": "SV230001" },
@@ -291,17 +263,14 @@ async function main() {
         "Student Trần Đình Khoa"
     );
 
-    // 5. Terms
     log("Upserting terms...");
     const termMap = {};
 
-    // Kiểm tra xem đã có ACTIVE term chưa — nếu có và không phải 2025-2 thì không đổi
     const existingActive = await Term.findOne({ status: "ACTIVE" });
 
     for (const def of TERM_DEFS) {
         let term = await Term.findOne({ term_code: def.term_code });
         if (!term) {
-            // Nếu đây là term ACTIVE nhưng đã có term ACTIVE khác → tạo INACTIVE trước, rồi swap
             const statusToUse =
                 def.status === "ACTIVE" && existingActive && String(existingActive.term_code) !== def.term_code
                     ? "INACTIVE"
@@ -314,17 +283,14 @@ async function main() {
         termMap[def.term_code] = term;
     }
 
-    // Đảm bảo 2025-2 là ACTIVE (nếu chưa có ACTIVE nào hoặc chính nó)
     const term2025_2 = termMap["2025-2"];
     if (term2025_2 && term2025_2.status !== "ACTIVE") {
-        // Deactivate tất cả trước
         await Term.updateMany({ status: "ACTIVE" }, { $set: { status: "INACTIVE" } });
         await Term.findByIdAndUpdate(term2025_2._id, { $set: { status: "ACTIVE" } });
         term2025_2.status = "ACTIVE";
         log("Term 2025-2 set to ACTIVE");
     }
 
-    // 6. AdvisorClass ARCCSU1
     const advisorClass = await upsertOne(
         AdvisorClass,
         { class_code: "ARCCSU1" },
@@ -340,7 +306,6 @@ async function main() {
         "AdvisorClass ARCCSU1"
     );
 
-    // 7. ClassMember
     await upsertOne(
         ClassMember,
         { student_user_id: student._id },
@@ -353,7 +318,6 @@ async function main() {
         "ClassMember Trần Đình Khoa"
     );
 
-    // 8. Seed từng kỳ
     for (const [termCode, acData] of Object.entries(ACADEMIC_DATA)) {
         const term = termMap[termCode];
         if (!term) {
@@ -363,10 +327,8 @@ async function main() {
 
         log(`\n--- Seeding term ${termCode} ---`);
 
-        // Tính recorded_at: giữa kỳ
         const midDate = new Date((term.start_date.getTime() + term.end_date.getTime()) / 2);
 
-        // 8a. AcademicRecord
         const existingRecord = await AcademicRecord.findOne({
             student_user_id: student._id,
             term_id: term._id,
@@ -378,7 +340,6 @@ async function main() {
             log(`AcademicRecord ${termCode} already exists — skip`);
             academicRecord = existingRecord;
         } else {
-            // Unset is_latest cũ nếu có
             await AcademicRecord.updateMany(
                 { student_user_id: student._id, term_id: term._id, is_latest: true },
                 { $set: { is_latest: false } }
@@ -403,7 +364,6 @@ async function main() {
             log(`AcademicRecord ${termCode} created: ${academicRecord._id}`);
         }
 
-        // 8b. Meeting
         const meetingTime = new Date(midDate.getTime() - 7 * 24 * 60 * 60 * 1000); // 1 tuần trước midDate
         const meetingEndTime = new Date(meetingTime.getTime() + 60 * 60 * 1000);   // +1 giờ
 
@@ -430,7 +390,6 @@ async function main() {
             log(`Meeting ${termCode} already exists — skip`);
         }
 
-        // 8c. Feedback
         let feedback = await Feedback.findOne({
             meeting_id: meeting._id,
             student_user_id: student._id,
@@ -453,7 +412,6 @@ async function main() {
             log(`Feedback ${termCode} already exists — skip`);
         }
 
-        // 8d. RiskPrediction
         let riskPrediction = await RiskPrediction.findOne({
             student_user_id: student._id,
             term_id: term._id,
@@ -479,7 +437,6 @@ async function main() {
             log(`RiskPrediction ${termCode} already exists — skip`);
         }
 
-        // 8e. Recommendations (chỉ tạo nếu chưa có cho risk prediction này)
         const existingRec = await Recommendation.findOne({ risk_prediction_id: riskPrediction._id });
         if (!existingRec) {
             const recTemplates = {
@@ -537,8 +494,6 @@ async function main() {
             log(`Recommendations ${termCode} already exist — skip`);
         }
 
-        // 8f. Alerts
-        // RISK alert — chỉ khi risk_label = -1
         if (acData.risk_label === -1) {
             const existingRiskAlert = await Alert.findOne({
                 risk_prediction_id: riskPrediction._id,
@@ -559,7 +514,6 @@ async function main() {
                 });
                 log(`RISK Alert ${termCode} created: ${riskAlert._id} (${severity})`);
 
-                // Notification cho advisor
                 await Notification.create({
                     recipient_user_id: advisor._id,
                     alert_id: riskAlert._id,
@@ -575,7 +529,6 @@ async function main() {
             }
         }
 
-        // SENTIMENT alert — khi feedback_sentiment = NEGATIVE
         if (acData.feedback_sentiment === "NEGATIVE") {
             const existingSentimentAlert = await Alert.findOne({
                 feedback_id: feedback._id,
@@ -598,7 +551,6 @@ async function main() {
                 });
                 log(`SENTIMENT Alert ${termCode} created: ${sentimentAlert._id}`);
 
-                // Notification cho advisor
                 await Notification.create({
                     recipient_user_id: advisor._id,
                     alert_id: sentimentAlert._id,
@@ -615,7 +567,7 @@ async function main() {
         }
     }
 
-    log("\n✅ Seed hoàn tất!");
+    log("\nSeed hoàn tất!");
     log(`   Advisor  : Nguyễn Văn A  (username: gv_nguyenvana  | password: 123456)`);
     log(`   Student  : Trần Đình Khoa (username: sv_trandinhkhoa | password: 123456)`);
     log(`   Lớp      : ARCCSU1`);
