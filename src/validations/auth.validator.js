@@ -2,7 +2,7 @@ const { body } = require("express-validator");
 
 class AuthValidator {
     loginValidator = [
-        body("email").notEmpty().withMessage("email is required").isEmail().withMessage("invalid email").normalizeEmail(),
+        body("email").notEmpty().withMessage("email is required").isEmail().withMessage("invalid email").toLowerCase(),
         body("password").notEmpty().withMessage("password is required"),
     ];
 

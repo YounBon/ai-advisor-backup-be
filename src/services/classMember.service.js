@@ -205,12 +205,29 @@ class ClassMemberService {
         const limit = Number(body.limit || 50);
         const skip = (page - 1) * limit;
 
-        const filter = { class_id: classId };
-        if (body.status) filter.status = body.status;
+        const memberFilter = { class_id: classId };
+        if (body.status) memberFilter.status = body.status;
+
+        // Nếu có search: tìm student_user_id khớp trước, rồi filter ClassMember
+        let searchStudentIds = null;
+        if (body.search && body.search.trim()) {
+            const q = body.search.trim();
+            const matchedStudents = await User.find({
+                role: "STUDENT",
+                $or: [
+                    { "profile.full_name": { $regex: q, $options: "i" } },
+                    { "student_info.student_code": { $regex: q, $options: "i" } },
+                    { email: { $regex: q, $options: "i" } },
+                    { username: { $regex: q, $options: "i" } },
+                ],
+            }).select("_id").lean();
+            searchStudentIds = matchedStudents.map((s) => s._id);
+            memberFilter.student_user_id = { $in: searchStudentIds };
+        }
 
         const [rows, total] = await Promise.all([
-            ClassMember.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
-            ClassMember.countDocuments(filter),
+            ClassMember.find(memberFilter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            ClassMember.countDocuments(memberFilter),
         ]);
 
         const studentIds = rows.map((item) => item.student_user_id);

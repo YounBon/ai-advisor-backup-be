@@ -258,7 +258,7 @@ class NotificationService {
             const created = await this.createNotification({
                 recipient_user_id: advisorId,
                 alert_id: riskAlert._id,
-                title: `⚠️ Cảnh báo rủi ro cao: ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}`,
+                title: `Cảnh báo rủi ro cao: ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}`,
                 content: `Sinh viên ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''} có nguy cơ học tập cao (điểm rủi ro=${risk.risk_score.toFixed(2)}). Cần can thiệp ngay.`,
             });
 
@@ -293,7 +293,7 @@ class NotificationService {
             const created = await this.createNotification({
                 recipient_user_id: advisorId,
                 alert_id: sentimentAlert._id,
-                title: `🚨 Cảnh báo tâm lý: ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}`,
+                title: `Cảnh báo tâm lý: ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}`,
                 content: `Sinh viên ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''} có phản hồi tiêu cực nghiêm trọng. Cần gặp gỡ và hỗ trợ tâm lý ngay.`,
             });
 
@@ -308,7 +308,7 @@ class NotificationService {
             const created = await this.createNotification({
                 recipient_user_id: advisorId,
                 alert_id: anomaly._id,
-                title: `⚡ Bất thường học tập: ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}`,
+                title: `Bất thường học tập: ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}`,
                 content: `Phát hiện bất thường trong dữ liệu học tập của sinh viên ${studentNameById.get(key) || key}${studentCodeById.get(key) ? ` - ${studentCodeById.get(key)}` : ''}. Cần kiểm tra ngay.`,
             });
 

@@ -268,35 +268,32 @@ class AcademicService {
                 const valueText = formatFeatureValue(item.feature, item.value);
 
                 let direction;
-                let changeText;
 
                 if (isDeltaMode) {
                     const delta = item.z;
-                    const absDelta = Math.abs(delta).toFixed(2);
-
                     if (item.feature === "stress_level") {
-                        direction = delta > 0 ? "tăng" : "giảm";
+                        direction = delta > 0 ? "tăng cao" : "giảm";
                     } else {
-                        direction = delta < 0 ? "giảm" : "tăng";
+                        direction = delta < 0 ? "giảm mạnh" : "tăng";
                     }
-                    changeText = `thay đổi=${delta > 0 ? '+' : ''}${delta.toFixed(2)}`;
                 } else {
                     const isBadDirection =
                         item.feature === "stress_level" ? item.z >= 0 : item.z <= 0;
                     direction = isBadDirection ? "tăng đột biến" : "giảm mạnh";
-                    changeText = `z=${item.z >= 0 ? '+' : ''}${item.z.toFixed(2)}`;
                 }
 
-                return `${featureLabel} ${direction} (${changeText}, giá trị=${valueText})`;
+                return `${featureLabel} ${direction} (hiện tại: ${valueText})`;
             });
 
-        const explainText = topSignals.length ? `${topSignals.join("; ")}.` : "";
+        const explainText = topSignals.length
+            ? ` Các chỉ số đáng chú ý: ${topSignals.join("; ")}.`
+            : "";
 
         await Notification.create({
             recipient_user_id: advisorId,
             alert_id: alert._id,
-            title: `Cảnh báo dấu hiệu bất thường: ${studentDisplay}`,
-            content: `Sinh viên ${studentDisplay} có dấu hiệu bất thường (${anomalyResult?.anomalyType || "Study anomaly"}).${explainText}`,
+            title: `Cảnh báo bất thường học tập: ${studentDisplay}`,
+            content: `Hệ thống phát hiện một số chỉ số học tập của sinh viên ${studentDisplay} có biến động bất thường so với các kỳ trước.${explainText} Vui lòng liên hệ sinh viên để nắm tình hình và hỗ trợ kịp thời.`,
             sent_at: new Date(),
         });
     }
